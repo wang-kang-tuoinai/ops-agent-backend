@@ -1,7 +1,6 @@
 package repository
 
 import (
-	"errors"
 	"ops-agent-backend/internal/model"
 	"sync"
 )
@@ -35,7 +34,7 @@ func (r *UserRepository) GetById(id int64) (model.User, error) {
 	defer r.mu.RUnlock()
 	u, ok := r.users[id]
 	if !ok {
-		return model.User{}, errors.New("user not found")
+		return model.User{}, ErrUserNotFound
 	}
 	return u, nil
 }
@@ -52,12 +51,12 @@ func (r *UserRepository) GetAll() []model.User {
 }
 
 // 更新用户信息
-func (r *UserRepository) Update(id int64,u model.User) (model.User, error) {
+func (r *UserRepository) Update(id int64, u model.User) (model.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	_, ok := r.users[id]
 	if !ok {
-		return model.User{}, errors.New("user not found!")
+		return model.User{}, ErrUserNotFound
 	}
 	r.users[id] = u
 	return u, nil
@@ -69,7 +68,7 @@ func (r *UserRepository) Delete(id int64) error {
 	defer r.mu.Unlock()
 	_, ok := r.users[id]
 	if !ok {
-		return errors.New("user not found!")
+		return ErrUserNotFound
 	}
 	delete(r.users, id)
 	return nil

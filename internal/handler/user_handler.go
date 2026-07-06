@@ -10,18 +10,25 @@ import (
 )
 
 type UserHandler struct {
-	userRepository *repository.UserRepository
+	userRepository repository.UserRepository
 }
 
-func NewUserHandler(repo *repository.UserRepository) *UserHandler {
+func NewUserHandler(repo repository.UserRepository) *UserHandler {
 	return &UserHandler{userRepository: repo}
 }
 func (h *UserHandler) CreateUser(c *gin.Context) {
-	var u model.User
-	if err := c.ShouldBindJSON(&u); err != nil {
+	var req model.CreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err)
 		return
 	}
+	var u model.User
+	if req.Age != nil {
+		u.Age = *req.Age
+	}
+	u.Email = req.Email
+	u.Password = req.Password
+	u.Username = req.Username
 	c.JSON(http.StatusOK, h.userRepository.Create(u))
 }
 
@@ -52,12 +59,29 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
-	var u model.User
-	if err := c.ShouldBindJSON(&u); err != nil {
+	var req model.UpdateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err)
 		return
 	}
-	updated, err := h.userRepository.Update(id, u)
+	//TODO 这里会有并发请求冲突 后需要加锁
+	// 查旧数据
+	existing, err := h.userRepository.GetById(id)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	if req.Age != nil {
+		existing.Age = *req.Age
+	}
+	if req.Email != nil {
+		existing.Email = *req.Email
+	}
+	if req.Username != nil {
+		existing.Username = *req.Username
+	}
+
+	updated, err := h.userRepository.Update(id, existing)
 	if err != nil {
 		HandleError(c, err)
 		return

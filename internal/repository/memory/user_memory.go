@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/repository"
 	"sync"
@@ -20,17 +21,17 @@ func NewUserMemoryRepository() *UserRepository {
 }
 
 // 创建用户
-func (r *UserRepository) Create(u model.User) model.User {
+func (r *UserRepository) Create(ctx context.Context, u model.User) (model.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	u.ID = r.nextID
 	r.nextID++
 	r.users[u.ID] = u
-	return u
+	return u, nil
 }
 
 // 根据id获取用户
-func (r *UserRepository) GetById(id int64) (model.User, error) {
+func (r *UserRepository) GetById(ctx context.Context, id int64) (model.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	u, ok := r.users[id]
@@ -41,18 +42,18 @@ func (r *UserRepository) GetById(id int64) (model.User, error) {
 }
 
 // 获取所有用户
-func (r *UserRepository) GetAll() []model.User {
+func (r *UserRepository) GetAll(ctx context.Context) ([]model.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	list := make([]model.User, 0, len(r.users))
 	for _, u := range r.users {
 		list = append(list, u)
 	}
-	return list
+	return list, nil
 }
 
 // 更新用户信息
-func (r *UserRepository) Update(id int64, u model.User) (model.User, error) {
+func (r *UserRepository) Update(ctx context.Context, id int64, u model.User) (model.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	_, ok := r.users[id]
@@ -64,7 +65,7 @@ func (r *UserRepository) Update(id int64, u model.User) (model.User, error) {
 }
 
 // 删除用户
-func (r *UserRepository) Delete(id int64) error {
+func (r *UserRepository) Delete(ctx context.Context, id int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	_, ok := r.users[id]

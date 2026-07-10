@@ -17,6 +17,7 @@ func NewUserHandler(repo repository.UserRepository) *UserHandler {
 	return &UserHandler{userRepository: repo}
 }
 func (h *UserHandler) CreateUser(c *gin.Context) {
+	ctx := c.Request.Context()
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err)
@@ -29,17 +30,23 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	u.Email = req.Email
 	u.Password = req.Password
 	u.Username = req.Username
-	c.JSON(http.StatusOK, h.userRepository.Create(u))
+	newUser, err := h.userRepository.Create(ctx, u)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, newUser)
 }
 
 func (h *UserHandler) GetUser(c *gin.Context) {
+	ctx := c.Request.Context()
 	strID := c.Param("id")
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
 		BadRequest(c, err)
 		return
 	}
-	u, err := h.userRepository.GetById(id)
+	u, err := h.userRepository.GetById(ctx, id)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -48,11 +55,17 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 }
 
 func (h *UserHandler) ListUser(c *gin.Context) {
-	users := h.userRepository.GetAll()
+	ctx := c.Request.Context()
+	users, err := h.userRepository.GetAll(ctx)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, users)
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
+	ctx := c.Request.Context()
 	strID := c.Param("id")
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
@@ -66,7 +79,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 	//TODO 这里会有并发请求冲突 后需要加锁
 	// 查旧数据
-	existing, err := h.userRepository.GetById(id)
+	existing, err := h.userRepository.GetById(ctx, id)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -81,7 +94,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		existing.Username = *req.Username
 	}
 
-	updated, err := h.userRepository.Update(id, existing)
+	updated, err := h.userRepository.Update(ctx, id, existing)
 	if err != nil {
 		HandleError(c, err)
 		return
@@ -90,13 +103,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 }
 
 func (h *UserHandler) DeleteUser(c *gin.Context) {
+	ctx := c.Request.Context()
 	strID := c.Param("id")
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
 		BadRequest(c, err)
 		return
 	}
-	if err := h.userRepository.Delete(id); err != nil {
+	if err := h.userRepository.Delete(ctx, id); err != nil {
 		HandleError(c, err)
 		return
 	}

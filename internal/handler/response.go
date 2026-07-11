@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"ops-agent-backend/internal/repository"
+	"ops-agent-backend/internal/utils"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +18,8 @@ func HandleError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, repository.ErrUserNotFound):
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "用户不存在"})
+	case errors.Is(err, utils.ErrLockConflict):
+		c.JSON(http.StatusConflict, ErrorResponse{Error: "该用户正在被修改,请稍后再试"})
 	default:
 		//未预期的错误不暴露内部细节
 		log.Println("internal error: ", err)

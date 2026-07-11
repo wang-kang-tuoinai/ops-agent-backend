@@ -1,20 +1,27 @@
 package handler
 
 import (
+	"fmt"
+	"log"
 	"net/http"
+	"ops-agent-backend/internal/bloom"
 	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/repository"
+	"ops-agent-backend/internal/utils"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 type UserHandler struct {
 	userRepository repository.UserRepository
+	redisLocker    *utils.RedisLocker
+	bloomFilter    *bloom.BloomFilter
 }
 
-func NewUserHandler(repo repository.UserRepository) *UserHandler {
-	return &UserHandler{userRepository: repo}
+func NewUserHandler(repo repository.UserRepository, redisLocker *utils.RedisLocker, bf *bloom.BloomFilter) *UserHandler {
+	return &UserHandler{userRepository: repo, redisLocker: redisLocker, bloomFilter: bf}
 }
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -35,6 +42,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		HandleError(c, err)
 		return
 	}
+	h.bloomFilter.Add(fmt.Sprintf("%d", newUser.ID))
 	c.JSON(http.StatusOK, newUser)
 }
 
@@ -44,6 +52,11 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
 		BadRequest(c, err)
+		return
+	}
+	if !h.bloomFilter.MightContain(strID) {
+		log.Println("blocked by bloom filter:", strID)
+		HandleError(c, repository.ErrUserNotFound)
 		return
 	}
 	u, err := h.userRepository.GetById(ctx, id)
@@ -77,7 +90,17 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		BadRequest(c, err)
 		return
 	}
-	//TODO 这里会有并发请求冲突 后需要加锁
+	lockKey := fmt.Sprintf("lock:user:%d", id)
+	lockValue, err := h.redisLocker.TryLock(ctx, lockKey, 4*time.Second)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	defer func() {
+		if err := h.redisLocker.TryUnLock(ctx, lockKey, lockValue); err != nil {
+			log.Println("Try unlock redis lock failed:", err)
+		}
+	}()
 	// 查旧数据
 	existing, err := h.userRepository.GetById(ctx, id)
 	if err != nil {

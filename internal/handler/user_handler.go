@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"ops-agent-backend/internal/bloom"
 	"ops-agent-backend/internal/model"
+	"ops-agent-backend/internal/mq"
 	"ops-agent-backend/internal/repository"
 	"ops-agent-backend/internal/utils"
 	"strconv"
@@ -18,10 +19,11 @@ type UserHandler struct {
 	userRepository repository.UserRepository
 	redisLocker    *utils.RedisLocker
 	bloomFilter    *bloom.BloomFilter
+	publisher      *mq.Publisher
 }
 
-func NewUserHandler(repo repository.UserRepository, redisLocker *utils.RedisLocker, bf *bloom.BloomFilter) *UserHandler {
-	return &UserHandler{userRepository: repo, redisLocker: redisLocker, bloomFilter: bf}
+func NewUserHandler(repo repository.UserRepository, redisLocker *utils.RedisLocker, bf *bloom.BloomFilter, pb *mq.Publisher) *UserHandler {
+	return &UserHandler{userRepository: repo, redisLocker: redisLocker, bloomFilter: bf, publisher: pb}
 }
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -43,6 +45,14 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 	h.bloomFilter.Add(fmt.Sprintf("%d", newUser.ID))
+	// 发布用户注册事件
+	event := mq.UserRegisterEvent{
+		UserId:   newUser.ID,
+		UserName: newUser.Username,
+	}
+	if err := h.publisher.PublishUserRegister(ctx, event); err != nil {
+		log.Printf("用户注册事件发布失败:userId=%d err=%v\n", newUser.ID, err)
+	}
 	c.JSON(http.StatusOK, newUser)
 }
 

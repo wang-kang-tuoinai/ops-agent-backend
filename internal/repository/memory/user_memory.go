@@ -4,6 +4,7 @@ import (
 	"context"
 	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/repository"
+	"slices"
 	"sync"
 )
 
@@ -42,14 +43,37 @@ func (r *UserRepository) GetById(ctx context.Context, id int64) (model.User, err
 }
 
 // 获取所有用户
-func (r *UserRepository) GetAll(ctx context.Context) ([]model.User, error) {
+func (r *UserRepository) List(ctx context.Context, offset, limit int) ([]model.User, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	list := make([]model.User, 0, len(r.users))
-	for _, u := range r.users {
-		list = append(list, u)
+	keys := make([]int64, 0, len(r.users))
+	for key := range r.users {
+		keys = append(keys, key)
 	}
-	return list, nil
+	slices.Sort(keys)
+	total := len(keys)
+	if offset < 0 || offset >= total {
+		return []model.User{}, nil
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+
+	pageKeys := keys[offset:end]
+	var result []model.User
+	for _, key := range pageKeys {
+		result = append(result, r.users[key])
+	}
+	return result, nil
+}
+
+func (r *UserRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
+	keys := make([]int64, 0, len(r.users))
+	for k := range r.users {
+		keys = append(keys, k)
+	}
+	return keys, nil
 }
 
 // 更新用户信息

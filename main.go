@@ -7,26 +7,37 @@ import (
 	"ops-agent-backend/internal/bloom"
 	"ops-agent-backend/internal/cache"
 	"ops-agent-backend/internal/handler"
+	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/mq"
-	"ops-agent-backend/internal/repository/memory"
+	"ops-agent-backend/internal/repository/mysql"
 	"ops-agent-backend/internal/router"
 	"ops-agent-backend/internal/utils"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
+	mysqlDriver "gorm.io/driver/mysql"
+	"gorm.io/gorm"
 )
 
 func main() {
-	repo := memory.NewUserMemoryRepository()
+	dsn := "root:root@tcp(127.0.0.1:3306)/ops_agent?charset=utf8mb4&parseTime=True&loc=Local"
+	db, err := gorm.Open(mysqlDriver.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatal("连接mysql失败:", err)
+	}
+	if err := db.AutoMigrate(&model.User{}); err != nil {
+		log.Fatal("创建mysql表失败:", err)
+	}
+	repo := mysql.NewUserMysqlRepository(db)
 	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
 	repoCache := cache.NewUserCacheRepository(repo, rdb)
 	bf := bloom.NewBloomFilter(10000, 4)
-	users, err := repoCache.GetAll(context.Background())
+	userIDs, err := repoCache.ListAllIDs(context.Background())
 	if err != nil {
 		log.Println("Get all users failed:", err)
 	}
-	for _, u := range users {
-		bf.Add(fmt.Sprintf("%d", u.ID))
+	for _, id := range userIDs {
+		bf.Add(fmt.Sprintf("%d", id))
 	}
 	redisLocker := utils.NewRedisDL(rdb)
 	// 初始化RabbitMQ的连接

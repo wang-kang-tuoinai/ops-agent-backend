@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserHandler struct {
@@ -37,7 +38,12 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		u.Age = *req.Age
 	}
 	u.Email = req.Email
-	u.Password = req.Password
+	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	if err != nil {
+		HandleError(c, err)
+		return
+	}
+	u.Password = string(hashedBytes)
 	u.Username = req.Username
 	newUser, err := h.userRepository.Create(ctx, u)
 	if err != nil {
@@ -53,7 +59,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	if err := h.publisher.PublishUserRegister(ctx, event); err != nil {
 		log.Printf("用户注册事件发布失败:userId=%d err=%v\n", newUser.ID, err)
 	}
-	c.JSON(http.StatusOK, newUser)
+	c.JSON(http.StatusOK, model.ToUserResponse(newUser))
 }
 
 func (h *UserHandler) GetUser(c *gin.Context) {
@@ -74,17 +80,37 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 		HandleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, u)
+	c.JSON(http.StatusOK, model.ToUserResponse(u))
 }
 
 func (h *UserHandler) ListUser(c *gin.Context) {
 	ctx := c.Request.Context()
-	users, err := h.userRepository.GetAll(ctx)
+	pageStr := c.DefaultQuery("page", "1")
+	limitStr := c.DefaultQuery("limit", "10")
+
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
+	}
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 {
+		limit = 20
+	}
+	// 限制最大limit数,防止前端传一个很大的数字拖垮数据库
+	if limit > 100 {
+		limit = 100
+	}
+	offset := (page - 1) * limit
+	users, err := h.userRepository.List(ctx, offset, limit)
 	if err != nil {
 		HandleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, users)
+	resp := make([]model.UserResponse, 0, len(users))
+	for _, u := range users {
+		resp = append(resp, model.ToUserResponse(u))
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
@@ -132,7 +158,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		HandleError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, updated)
+	c.JSON(http.StatusOK, model.ToUserResponse(updated))
 }
 
 func (h *UserHandler) DeleteUser(c *gin.Context) {

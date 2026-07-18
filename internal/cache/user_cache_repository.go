@@ -89,12 +89,20 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 	}
 }
 
-func (c *CacheUserRepository) GetAll(ctx context.Context) ([]model.User, error) {
-	userList, err := c.next.GetAll(ctx)
+func (c *CacheUserRepository) List(ctx context.Context, offset, limit int) ([]model.User, error) {
+	userList, err := c.next.List(ctx, offset, limit)
 	if err != nil {
 		return make([]model.User, 0), err
 	}
 	return userList, nil
+}
+
+func (c *CacheUserRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
+	userIDs, err := c.next.ListAllIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return userIDs, nil
 }
 
 func (c *CacheUserRepository) Update(ctx context.Context, id int64, u model.User) (model.User, error) {

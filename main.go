@@ -12,6 +12,7 @@ import (
 	"ops-agent-backend/internal/repository/mysql"
 	"ops-agent-backend/internal/router"
 	"ops-agent-backend/internal/utils"
+	"os"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/v9"
@@ -21,6 +22,7 @@ import (
 
 func main() {
 	dsn := "root:root@tcp(127.0.0.1:3306)/ops_agent?charset=utf8mb4&parseTime=True&loc=Local"
+	dsn = getEnv("MYSQL_DSN", dsn)
 	db, err := gorm.Open(mysqlDriver.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal("连接mysql失败:", err)
@@ -29,7 +31,8 @@ func main() {
 		log.Fatal("创建mysql表失败:", err)
 	}
 	repo := mysql.NewUserMysqlRepository(db)
-	rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
+	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
 	repoCache := cache.NewUserCacheRepository(repo, rdb)
 	bf := bloom.NewBloomFilter(10000, 4)
 	userIDs, err := repoCache.ListAllIDs(context.Background())
@@ -41,7 +44,8 @@ func main() {
 	}
 	redisLocker := utils.NewRedisDL(rdb)
 	// 初始化RabbitMQ的连接
-	amqpConn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	rabbitmqAddr := getEnv("RABBITMQ_ADDR", "amqp://guest:guest@localhost:5672/")
+	amqpConn, err := amqp.Dial(rabbitmqAddr)
 	if err != nil {
 		log.Fatal("连接RabbitMQ失败:", err)
 	}
@@ -57,4 +61,11 @@ func main() {
 		log.Println("启动失败", err)
 	}
 	log.Println("启动成功!")
+}
+
+func getEnv(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }

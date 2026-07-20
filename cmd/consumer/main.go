@@ -13,7 +13,8 @@ import (
 
 func main() {
 	// 初始化RabbitMQ的连接
-	amqpConn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
+	amqp_addr := getEnv("RABBITMQ_ADDR", "amqp://guest:guest@localhost:5672/")
+	amqpConn, err := amqp.Dial(amqp_addr)
 	if err != nil {
 		log.Fatal("连接RabbitMQ失败:", err)
 	}
@@ -40,4 +41,11 @@ func main() {
 	sig := <-quit
 	log.Printf("收到信号 %v，开始优雅退出...", sig)
 	// defer 会自动执行 cancel() → consumer.Close() → amqpConn.Close()
+}
+
+func getEnv(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
 }

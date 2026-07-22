@@ -40,7 +40,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := tp.Shutdown(ctx); err != nil {
-			log.Fatal("关闭Trace超时或失败:", err)
+			log.Println("关闭Trace超时或失败:", err)
 		}
 	}()
 	dsn := "root:root@tcp(127.0.0.1:3306)/ops_agent?charset=utf8mb4&parseTime=True&loc=Local"

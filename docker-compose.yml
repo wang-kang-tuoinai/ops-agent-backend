@@ -39,6 +39,13 @@ services:
     depends_on:
       rabbitmq:
         condition: service_healthy
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    ports:
+      - "16686:16686" # Jaeger UI(浏览器访问)
+      - "4318:4318" # OTLP HTTP 接收端口(你的应用往这发数据)
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
   app:
     build: .
     ports:
@@ -47,6 +54,7 @@ services:
       REDIS_ADDR: redis:6379
       RABBITMQ_ADDR: amqp://guest:guest@rabbitmq:5672/
       MYSQL_DSN: root:root@tcp(mysql:3306)/ops_agent?charset=utf8mb4&parseTime=True&loc=Local
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
     depends_on:
       mysql:
         condition: service_healthy
@@ -54,6 +62,8 @@ services:
         condition: service_started
       rabbitmq:
         condition: service_healthy
+      jaeger:
+        condition: service_started
 
 volumes:
   mysql-data:

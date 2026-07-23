@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,8 +14,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"golang.org/x/crypto/bcrypt"
 )
+
+var tracer = otel.Tracer("handler")
 
 type UserHandler struct {
 	userRepository repository.UserRepository
@@ -28,6 +34,8 @@ func NewUserHandler(repo repository.UserRepository, redisLocker *utils.RedisLock
 }
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	ctx := c.Request.Context()
+	ctx, span := tracer.Start(ctx, "handler.create.user")
+	defer span.End()
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		BadRequest(c, err)
@@ -56,9 +64,13 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		UserId:   newUser.ID,
 		UserName: newUser.Username,
 	}
+	publishOK := true
 	if err := h.publisher.PublishUserRegister(ctx, event); err != nil {
+		span.RecordError(err)
+		publishOK = false
 		log.Printf("用户注册事件发布失败:userId=%d err=%v\n", newUser.ID, err)
 	}
+	span.SetAttributes(attribute.Bool("handler.publish", publishOK))
 	c.JSON(http.StatusOK, model.ToUserResponse(newUser))
 }
 
@@ -115,6 +127,8 @@ func (h *UserHandler) ListUser(c *gin.Context) {
 
 func (h *UserHandler) UpdateUser(c *gin.Context) {
 	ctx := c.Request.Context()
+	ctx, span := tracer.Start(ctx, "handler.update.user")
+	defer span.End()
 	strID := c.Param("id")
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
@@ -129,13 +143,22 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	lockKey := fmt.Sprintf("lock:user:%d", id)
 	lockValue, err := h.redisLocker.TryLock(ctx, lockKey, 4*time.Second)
 	if err != nil {
+		if !errors.Is(err, utils.ErrLockConflict) {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, "try get lock failed")
+		}
+		span.SetAttributes(attribute.Bool("handler.lock", false))
 		HandleError(c, err)
 		return
 	}
+	span.SetAttributes(attribute.Bool("handler.lock", true))
 	defer func() {
 		if err := h.redisLocker.TryUnLock(ctx, lockKey, lockValue); err != nil {
+			span.SetAttributes(attribute.Bool("handler.unlock", false))
 			log.Println("Try unlock redis lock failed:", err)
+			return
 		}
+		span.SetAttributes(attribute.Bool("handler.unlock", true))
 	}()
 	// 查旧数据
 	existing, err := h.userRepository.GetById(ctx, id)

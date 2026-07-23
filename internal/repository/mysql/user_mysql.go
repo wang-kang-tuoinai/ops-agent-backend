@@ -48,6 +48,7 @@ func (r *UserRepository) GetById(ctx context.Context, id int64) (model.User, err
 	defer cancel()
 	if err := r.db.WithContext(getCtx).First(&u, id).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			span.SetAttributes(attribute.Bool("user.isExist", false))
 			return model.User{}, repository.ErrUserNotFound
 		}
 		span.RecordError(err)

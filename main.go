@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"ops-agent-backend/internal/bloom"
 	"ops-agent-backend/internal/cache"
@@ -43,9 +44,26 @@ func main() {
 			log.Println("关闭Trace超时或失败:", err)
 		}
 	}()
+	//初始化Mysql
 	dsn := "root:root@tcp(127.0.0.1:3306)/ops_agent?charset=utf8mb4&parseTime=True&loc=Local"
 	dsn = getEnv("MYSQL_DSN", dsn)
-	db, err := gorm.Open(mysqlDriver.Open(dsn), &gorm.Config{})
+	var db *gorm.DB
+	err = withRetry("MySQL", 5, 2*time.Second, func() error {
+		var openErr error
+		db, openErr = gorm.Open(mysqlDriver.Open(dsn), &gorm.Config{})
+		if openErr != nil {
+			return openErr
+		}
+		sqlDB, err := db.DB()
+		if err != nil {
+			return err
+		}
+		if err := sqlDB.Ping(); err != nil {
+			sqlDB.Close()
+			return err
+		}
+		return nil
+	})
 	if err != nil {
 		log.Fatal("连接mysql失败:", err)
 	}
@@ -54,7 +72,15 @@ func main() {
 	}
 	repo := mysql.NewUserMysqlRepository(db)
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
-	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
+	rdb := redis.NewClient(&redis.Options{
+		Addr:            redisAddr,
+		DialTimeout:     5 * time.Second, // 建立连接的超时时间
+		ReadTimeout:     3 * time.Second, // 读超时
+		WriteTimeout:    3 * time.Second, // 写超时
+		MaxRetries:      3,               // 命令执行失败时的最大重试次数
+		MinRetryBackoff: 8 * time.Millisecond,
+		MaxRetryBackoff: 512 * time.Millisecond,
+	})
 	repoCache := cache.NewUserCacheRepository(repo, rdb)
 	bf := bloom.NewBloomFilter(10000, 4)
 	userIDs, err := repoCache.ListAllIDs(context.Background())
@@ -67,7 +93,17 @@ func main() {
 	redisLocker := utils.NewRedisDL(rdb)
 	// 初始化RabbitMQ的连接
 	rabbitmqAddr := getEnv("RABBITMQ_ADDR", "amqp://guest:guest@localhost:5672/")
-	amqpConn, err := amqp.Dial(rabbitmqAddr)
+	var amqpConn *amqp.Connection
+	err = withRetry("RabbitMQ", 5, 4*time.Second, func() error {
+		var dialErr error
+		amqpConn, dialErr = amqp.DialConfig(rabbitmqAddr,
+			amqp.Config{Dial: func(network string, addr string) (net.Conn, error) {
+				return net.DialTimeout(network, addr, 5*time.Second)
+			}},
+		)
+		return dialErr
+	},
+	)
 	if err != nil {
 		log.Fatal("连接RabbitMQ失败:", err)
 	}
@@ -130,4 +166,18 @@ func initTracer() (*trace.TracerProvider, error) {
 	)
 	otel.SetTracerProvider(tp)
 	return tp, nil
+}
+
+func withRetry(operationName string, maxRetries int, delay time.Duration, fn func() error) error {
+	var err error
+	for i := 1; i <= maxRetries; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		log.Printf("%s连接失败 (第%d/%d次重试),错误%v", operationName, i, maxRetries, err)
+		if i < maxRetries {
+			time.Sleep(delay)
+		}
+	}
+	return fmt.Errorf("[%s] 达到最大重试次数，最终失败: %w", operationName, err)
 }

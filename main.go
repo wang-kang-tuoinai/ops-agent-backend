@@ -50,7 +50,9 @@ func main() {
 	var db *gorm.DB
 	err = withRetry("MySQL", 5, 2*time.Second, func() error {
 		var openErr error
-		db, openErr = gorm.Open(mysqlDriver.Open(dsn), &gorm.Config{})
+		db, openErr = gorm.Open(mysqlDriver.Open(dsn), &gorm.Config{
+			TranslateError: true,
+		})
 		if openErr != nil {
 			return openErr
 		}
@@ -120,6 +122,7 @@ func main() {
 		Handler: r,
 	}
 	go func() {
+		//TODO 这里log.Fetal会导致defer不能正常执行
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal("HTTP服务启动失败:", err)
 		}

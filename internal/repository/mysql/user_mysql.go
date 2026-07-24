@@ -31,8 +31,12 @@ func (r *UserRepository) Create(ctx context.Context, u model.User) (model.User, 
 	createCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 	if err := r.db.WithContext(createCtx).Create(&u).Error; err != nil {
-		span.RecordError(err)
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			span.SetAttributes(attribute.Bool("user.duplicate", true))
+			return model.User{}, repository.ErrDuplicateUser
+		}
 		span.SetStatus(codes.Error, "create failed")
+		span.RecordError(err)
 		return model.User{}, err
 	}
 	span.SetAttributes(attribute.Int64("user.id", u.ID))
@@ -90,6 +94,10 @@ func (r *UserRepository) Update(ctx context.Context, id int64, u model.User) (mo
 	updateCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if err := r.db.WithContext(updateCtx).Save(&u).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			span.SetAttributes(attribute.Bool("user.duplicate", true))
+			return model.User{}, repository.ErrDuplicateUser
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "update failed")
 		return model.User{}, err

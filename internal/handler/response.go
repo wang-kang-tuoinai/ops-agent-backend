@@ -18,6 +18,8 @@ func HandleError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, repository.ErrUserNotFound):
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "用户不存在"})
+	case errors.Is(err, repository.ErrDuplicateUser):
+		c.JSON(http.StatusConflict, ErrorResponse{Error: "用户已存在"})
 	case errors.Is(err, utils.ErrLockConflict):
 		c.JSON(http.StatusConflict, ErrorResponse{Error: "该用户正在被修改,请稍后再试"})
 	default:

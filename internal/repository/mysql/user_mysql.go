@@ -87,13 +87,28 @@ func (r *UserRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
 	return userIDs, nil
 }
 
-func (r *UserRepository) Update(ctx context.Context, id int64, u model.User) (model.User, error) {
+func (r *UserRepository) Update(ctx context.Context, id int64, upd model.UserUpdate) (model.User, error) {
 	ctx, span := tracer.Start(ctx, "mysql.Update")
 	defer span.End()
 	span.SetAttributes(attribute.Int64("user.id", id))
 	updateCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	if err := r.db.WithContext(updateCtx).Save(&u).Error; err != nil {
+	fields := map[string]any{}
+	if upd.Age != nil {
+		fields["age"] = *upd.Age
+	}
+	if upd.Email != nil {
+		fields["email"] = *upd.Email
+	}
+	if upd.Username != nil {
+		fields["username"] = *upd.Username
+	}
+	//如果什么都没传,直接返回当前User
+	if len(fields) == 0 {
+		return r.GetById(ctx, id)
+	}
+	result := r.db.WithContext(updateCtx).Model(&model.User{}).Where("id = ?", id).Updates(fields)
+	if err := result.Error; err != nil {
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
 			span.SetAttributes(attribute.Bool("user.duplicate", true))
 			return model.User{}, repository.ErrDuplicateUser
@@ -102,7 +117,7 @@ func (r *UserRepository) Update(ctx context.Context, id int64, u model.User) (mo
 		span.SetStatus(codes.Error, "update failed")
 		return model.User{}, err
 	}
-	return u, nil
+	return r.GetById(ctx, id)
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id int64) error {
@@ -122,3 +137,5 @@ func (r *UserRepository) Delete(ctx context.Context, id int64) error {
 	}
 	return nil
 }
+
+//TODO 增加GetByUsernameForAuth接口,直连需数据,适合需要密码验证的地方

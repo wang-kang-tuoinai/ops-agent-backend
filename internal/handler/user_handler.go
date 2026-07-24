@@ -160,23 +160,8 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		}
 		span.SetAttributes(attribute.Bool("handler.unlock", true))
 	}()
-	// 查旧数据
-	existing, err := h.userRepository.GetById(ctx, id)
-	if err != nil {
-		HandleError(c, err)
-		return
-	}
-	if req.Age != nil {
-		existing.Age = *req.Age
-	}
-	if req.Email != nil {
-		existing.Email = *req.Email
-	}
-	if req.Username != nil {
-		existing.Username = *req.Username
-	}
 
-	updated, err := h.userRepository.Update(ctx, id, existing)
+	updated, err := h.userRepository.Update(ctx, id, req.ToUserUpdate())
 	if err != nil {
 		HandleError(c, err)
 		return

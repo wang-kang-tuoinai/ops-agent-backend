@@ -69,6 +69,8 @@ func (r *UserRepository) List(ctx context.Context, offset, limit int) ([]model.U
 }
 
 func (r *UserRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	keys := make([]int64, 0, len(r.users))
 	for k := range r.users {
 		keys = append(keys, k)
@@ -77,12 +79,21 @@ func (r *UserRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
 }
 
 // 更新用户信息
-func (r *UserRepository) Update(ctx context.Context, id int64, u model.User) (model.User, error) {
+func (r *UserRepository) Update(ctx context.Context, id int64, upd model.UserUpdate) (model.User, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	_, ok := r.users[id]
+	u, ok := r.users[id]
 	if !ok {
 		return model.User{}, repository.ErrUserNotFound
+	}
+	if upd.Age != nil {
+		u.Age = *upd.Age
+	}
+	if upd.Email != nil {
+		u.Email = *upd.Email
+	}
+	if upd.Username != nil {
+		u.Username = *upd.Username
 	}
 	r.users[id] = u
 	return u, nil

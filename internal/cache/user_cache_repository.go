@@ -36,7 +36,9 @@ func (c *CacheUserRepository) Create(ctx context.Context, u model.User) (model.U
 		return model.User{}, err
 	}
 	span.SetAttributes(attribute.Int64("user.id", newUser.ID))
-	jsonData, err := json.Marshal(newUser)
+	//把model.User转化为CachedUser再存储
+	cachedUser := ToCachedUser(newUser)
+	jsonData, err := json.Marshal(cachedUser)
 	storeOK := true
 	if err != nil {
 		span.RecordError(err)
@@ -58,6 +60,8 @@ func (c *CacheUserRepository) Create(ctx context.Context, u model.User) (model.U
 	return newUser, nil
 }
 
+// GetByID返回用户资料,当缓存命中的时候,User结构体里的password字段为空
+// 若需要密码(见TODO: GetByUsernameForAuth)
 func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User, error) {
 	ctx, span := tracer.Start(ctx, "cache.GetById")
 	defer span.End()
@@ -73,8 +77,10 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 		if err != nil {
 			return model.User{}, err
 		}
+		//把model.User转化为CachedUser存储在Redis中,隐藏密码
+		cachedUser := ToCachedUser(u)
 		// 尝试存入Redis
-		data, err := json.Marshal(u)
+		data, err := json.Marshal(cachedUser)
 		if err != nil {
 			span.RecordError(err)
 			span.SetAttributes(attribute.Bool("cache.store", false))
@@ -84,18 +90,18 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 		redisSetCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 		defer cancel()
 		err = c.redis.Set(redisSetCtx, key, data, 10*time.Minute).Err()
+		storeOK := true
 		if err != nil {
-			span.SetAttributes(attribute.Bool("cache.store", false))
+			storeOK = false
 			log.Println("Cache user failed:", err)
 		}
-		span.SetAttributes(attribute.Bool("cache.store", true))
+		span.SetAttributes(attribute.Bool("cache.store", storeOK))
 		return u, nil
 	} else if err != nil {
 		// 如果从Redis获取数据发生错误,那么直接从Repository中获取并记录日志
 		log.Println("Get user from redis failed:", err)
 		span.RecordError(err)
 		span.SetAttributes(attribute.Bool("cache.hit", false))
-		span.SetAttributes(attribute.Bool("cache.store", false))
 		u, err := c.next.GetById(ctx, id)
 		if err != nil {
 			return model.User{}, err
@@ -104,12 +110,12 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 	} else {
 		span.SetAttributes(attribute.Bool("cache.hit", true))
 		// 成功从Redis中获取到数据,直接返回
-		var u model.User
-		if err := json.Unmarshal(jsonData, &u); err != nil {
+		var cu CachedUser
+		if err := json.Unmarshal(jsonData, &cu); err != nil {
 			span.RecordError(err)
 			return model.User{}, err
 		}
-		return u, nil
+		return cu.ToModelUser(), nil
 	}
 }
 
@@ -132,11 +138,11 @@ func (c *CacheUserRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
 	return userIDs, nil
 }
 
-func (c *CacheUserRepository) Update(ctx context.Context, id int64, u model.User) (model.User, error) {
+func (c *CacheUserRepository) Update(ctx context.Context, id int64, upd model.UserUpdate) (model.User, error) {
 	ctx, span := tracer.Start(ctx, "cache.Update")
 	defer span.End()
 	span.SetAttributes(attribute.Int64("user.id", id))
-	newUser, err := c.next.Update(ctx, id, u)
+	newUser, err := c.next.Update(ctx, id, upd)
 	if err != nil {
 		return model.User{}, err
 	}

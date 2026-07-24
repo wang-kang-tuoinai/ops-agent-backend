@@ -21,6 +21,7 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -29,6 +30,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.37.0"
 	mysqlDriver "gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/plugin/opentelemetry/tracing"
 )
 
 func main() {
@@ -72,6 +74,12 @@ func main() {
 	if err := db.AutoMigrate(&model.User{}); err != nil {
 		log.Fatal("创建mysql表失败:", err)
 	}
+	if err := db.Use(tracing.NewPlugin(
+		tracing.WithoutMetrics(),
+		tracing.WithoutQueryVariables(), //只记SQL模板,不记具体参数值
+	)); err != nil {
+		log.Fatal("注册 GORM tracing 插件失败:", err)
+	}
 	repo := mysql.NewUserMysqlRepository(db)
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
 	rdb := redis.NewClient(&redis.Options{
@@ -83,6 +91,9 @@ func main() {
 		MinRetryBackoff: 8 * time.Millisecond,
 		MaxRetryBackoff: 512 * time.Millisecond,
 	})
+	if err := redisotel.InstrumentTracing(rdb, redisotel.WithDBStatement(false)); err != nil {
+		log.Fatal("注册 Redis tracing 失败:", err)
+	}
 	repoCache := cache.NewUserCacheRepository(repo, rdb)
 	bf := bloom.NewBloomFilter(10000, 4)
 	userIDs, err := repoCache.ListAllIDs(context.Background())

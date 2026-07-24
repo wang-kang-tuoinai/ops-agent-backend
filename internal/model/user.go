@@ -28,6 +28,20 @@ type UpdateUserRequest struct {
 	Age      *int    `json:"age"`
 }
 
+func (r UpdateUserRequest) ToUserUpdate() UserUpdate {
+	return UserUpdate{
+		Username: r.Username,
+		Email:    r.Email,
+		Age:      r.Age,
+	}
+}
+
+type UserUpdate struct {
+	Username *string
+	Email    *string
+	Age      *int
+}
+
 func ToUserResponse(u User) UserResponse {
 	return UserResponse{
 		ID:       u.ID,

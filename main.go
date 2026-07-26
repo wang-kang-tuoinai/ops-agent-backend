@@ -132,17 +132,21 @@ func main() {
 		Addr:    ":8080",
 		Handler: r,
 	}
+	srvErr := make(chan error, 1)
 	go func() {
-		//TODO 这里log.Fetal会导致defer不能正常执行
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatal("HTTP服务启动失败:", err)
+			srvErr <- err
 		}
 	}()
 	log.Println("启动成功!")
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	sig := <-quit
-	log.Printf("收到信号 %v,开始优雅退出", sig)
+	select {
+	case sig := <-quit:
+		log.Printf("收到信号 %v,开始优雅退出", sig)
+	case err := <-srvErr:
+		log.Println("HTTP 服务异常:", err)
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

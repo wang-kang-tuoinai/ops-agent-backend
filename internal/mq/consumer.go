@@ -81,6 +81,7 @@ func (c *Consumer) Subscribe(
 					_ = msg.Nack(false, false)
 					continue
 				}
+				//TODO 没有限制重试次数会导致无限重试
 				if err := handler(ctx, event); err != nil {
 					log.Printf("[Consumer] queue %s 处理失败: evendId= %s err=%v\n",
 						queueName, event.EventId, err)

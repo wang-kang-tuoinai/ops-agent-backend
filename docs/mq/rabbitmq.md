@@ -19,7 +19,7 @@ Ack代表消息被正常处理，符合你的业务逻辑，你就可以用Ack�
 
 # 项目里的Rabbitmq
 
-![消息流转图](./images/user_registered_message_flow.svg)
+![消息流转图](./images/user-registered-message_flow.png)
 ## 消费者处理消息的三条分支
 第一条是正常处理成功，那么就直接Ack确认，第二条分支就是应对消息格式有问题的情况，这个时候直接用Nack(requeue=false)，第三种就是下游API有问题的情况，尝试Nack(requeue)重试。
 

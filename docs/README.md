@@ -30,3 +30,7 @@
 - [数据库与 SQL 优化](database/sql-optimization-checklist.md)
 - [微服务基础概念](microservice/microservice-basics.md)
 - [分布式追踪](tracing/distributed-tracing.md)
+
+## [踩坑记录](./pitfalls.md)
+
+两周里实际踩出来的坑,含现象、根因和可推广的教训。

@@ -1,4 +1,4 @@
-## 为什么单纯的sync.Mutex不行
+## 为什么有时候单纯的sync.Mutex不行,而是需要分布式锁
 因为如果只是单纯的sync.Mutex对于单实例还好，但是如果存在多个实例同时运行，那他就不能保证互斥了。
 ## 加锁
 使用SET key value NX EX seconds命令

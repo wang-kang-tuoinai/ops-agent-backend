@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+.dockerignore
+Dockerfile*
+docker-compose*.yml
+
+# Documentation
+docs/
+*.md
+
+# Environment / secrets
+.env
+.env.*
+
+# Build artifacts & binaries
+bin/
+build/
+dist/
+*.exe
+*.out
+*.test
+coverage.*
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log

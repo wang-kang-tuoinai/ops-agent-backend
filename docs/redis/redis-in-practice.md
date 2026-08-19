@@ -1,6 +1,6 @@
 ## 装饰器模式做缓存层
 在接入Redis的时候，服务里面大致可以分为handler层以及repository层。我们没有选择把Redis代码写在handler层或者是repository层，而是增加了一个Cache层，这个cache层持有repository层的引用。下面来说为什么这样设计。
-### 好处
+### 装饰器模式的好处
 handler层以及repository层代码根本不用改。原先Handler层里持有的是UserRepository这个接口，而Repository层实现了这些接口，所以handler层理所应当能够引用Repository层，但是我们让Cache层同样实现这些接口之后，handler层可以无痛把UserRepository的引用指向Cache层，这样Handler连代码都不用改。同时，我们让Cache层持有UserRepository的引用，这个引用指向真正的数据库层，可以让Cache层无需关注数据层的实现细节。
 
 ## 为什么在更新的时候选择的是删缓存，而不是更新Redis里的缓存

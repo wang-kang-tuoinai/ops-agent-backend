@@ -2,19 +2,33 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"net"
 	"ops-agent-backend/internal/mq"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
-//TODO docker compose up有时候consumer没有正常启动
+
+// TODO docker compose up有时候consumer没有正常启动
 func main() {
 	// 初始化RabbitMQ的连接
 	amqp_addr := getEnv("RABBITMQ_ADDR", "amqp://guest:guest@localhost:5672/")
-	amqpConn, err := amqp.Dial(amqp_addr)
+	var amqpConn *amqp.Connection
+	err := withRetry("RabbitMQ", 5, 4*time.Second, func() error {
+		var dialErr error
+		amqpConn, dialErr = amqp.DialConfig(amqp_addr,
+			amqp.Config{Dial: func(network string, addr string) (net.Conn, error) {
+				return net.DialTimeout(network, addr, 5*time.Second)
+			}},
+		)
+		return dialErr
+	},
+	)
 	if err != nil {
 		log.Fatal("连接RabbitMQ失败:", err)
 	}
@@ -48,4 +62,18 @@ func getEnv(key, defaultVal string) string {
 		return v
 	}
 	return defaultVal
+}
+
+func withRetry(operationName string, maxRetries int, delay time.Duration, fn func() error) error {
+	var err error
+	for i := 1; i <= maxRetries; i++ {
+		if err = fn(); err == nil {
+			return nil
+		}
+		log.Printf("%s连接失败 (第%d/%d次重试),错误%v", operationName, i, maxRetries, err)
+		if i < maxRetries {
+			time.Sleep(delay)
+		}
+	}
+	return fmt.Errorf("[%s] 达到最大重试次数，最终失败: %w", operationName, err)
 }

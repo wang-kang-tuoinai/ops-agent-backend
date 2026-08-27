@@ -93,6 +93,8 @@ CREATE TABLE logs (
 
 **存储层做成 interface**（`LogStore`：`Insert` / `QueryStats` / `QueryTemplates` / `QuerySearch`），将来换 Loki 只换实现，工具不变。
 
+> **写入也带外（ADR-007）**：日志不由 backend 进程内直写 MySQL，而是结构化打到 **stdout**（12-factor 方式），由独立采集进程（可复用 obs-api 的日志采集角色）落 MySQL。这样 backend 崩溃瞬间的最后几条日志仍在 stdout/容器日志缓冲里，不会随进程丢失。
+
 ## 6. 查询接口（给 AI 的三个工具）
 
 统一前缀 `/api/v1/observability`，统一 `summary + samples` 双层结构、游标分页、秒级 `start/end` 参数。

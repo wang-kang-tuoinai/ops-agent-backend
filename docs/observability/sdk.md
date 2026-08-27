@@ -31,6 +31,8 @@ GET /traces/stats?operation=products.create
 
 ## 3. 五样原语
 
+> **部署边界（ADR-006）**：前四样（`Middleware`/`Log`/`StartSpan`/指标）跑在 **backend**（被观测服务内）；`RegisterTool` + providers 跑在独立 **obs-api** 服务。同一套 `sdk` 库被两个服务引用，各用各半——backend 只观测不查询，obs-api 只查询不观测。
+
 ```
 sdk.Middleware()                  ← 挂一次，HTTP access log + HTTP span 全局自动
 sdk.Log(ctx)                      ← 结构化日志，自动带 trace_id
@@ -127,12 +129,12 @@ SDK 自动：
 
 ### 5.2 语言边界
 
-埋点 SDK 是 **Go**（在 backend 里）；AI（rag-service，Python）消费的是**工具定义（JSON Schema，语言无关）**。所以 SDK 是两半：
+埋点 SDK 是 **Go**；AI 消费方是**诊断 Agent（ops-diagnosis-agent，Python/LangGraph）**，消费的是**工具定义（JSON Schema，语言无关）**。SDK 沿两个维度切：
 
-- **Go 侧**：`metrics` + `slog` + `span` 封装，backend 内部复用；
-- **工具注册表**：输出语言无关的 JSON Schema，Python 侧读 `/observability/tools` 即可拿到工具列表。
+- **语言维度**：`metrics` + `slog` + `span` 是 Go 侧封装；工具定义是语言无关 JSON Schema，Python 侧读 `/observability/tools` 即得工具列表。
+- **部署维度（ADR-006）**：core（`Middleware`/`Log`/`StartSpan`/指标）跑在 **backend**；`RegisterTool` + providers 跑在独立 **obs-api**。两服务引用同一套 `sdk`，各用各半。
 
-这一半是真正的可复用点——将来 AI 侧换语言/换模型，工具定义不变。
+工具定义这一半是真正的可复用点——将来 AI 侧换语言/换模型，工具定义不变。
 
 ### 5.3 MCP 适配（ADR-003，可选后路）
 
@@ -147,4 +149,4 @@ func toMCPTool(t Tool) mcp.Tool {
 - 当前阶段：纯 HTTP（`/observability/tools` + `/tools/{name}/call`），最贴合项目 HTTP-first。
 - 将来需复用给多个 agent / 接入 Claude Code、Desktop 等现成 MCP 客户端时：同一套 Tool 包一层 MCP 适配器，半天接上，不推翻前面设计。
 
-> 什么时候直接上 MCP：明确要让**现成 MCP 客户端**用这套能力时，从一开始按 MCP 做，省一层。只服务自己的 rag-service 时，手写 HTTP 更省。
+> 什么时候直接上 MCP：明确要让**现成 MCP 客户端**用这套能力时，从一开始按 MCP 做，省一层。只服务自己的 ops-diagnosis-agent 时，手写 HTTP 更省。

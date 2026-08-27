@@ -8,6 +8,36 @@ OTel span 里塞满 AI 用不到的东西（`trace_state`、`links`、`events`�
 1. **裁剪（drop）**：只留 AI 分析真正需要的字段。
 2. **统一词汇（mapping）**：把不同来源的同义字段映射到同一个 key。
 
+### 1.1 Jaeger 原始数据长什么样（实证）
+
+`GET /api/traces` 返回的 span 是「多态 tag 数组 + 微秒单位 + references 数组 + processes 表」的结构：
+
+```json
+{ "spanID": "c3d4...", "operationName": "cache.GetById",
+  "references": [{ "refType": "CHILD_OF", "spanID": "0000..." }],
+  "startTime": 1787000000000123, "duration": 4000,
+  "tags": [
+    { "key": "cache.hit", "type": "bool", "value": true },
+    { "key": "internal.span.format", "type": "string", "value": "otlp" },
+    { "key": "net.sock.peer.addr", "type": "string", "value": "127.0.0.1:6379" }
+  ],
+  "logs": [ { "timestamp": 1787000000000200, "fields": [ { "key": "message", "value": "cache miss" } ] } ],
+  "processID": "p1" }
+```
+
+对照第 2 节归一化后的形态：
+
+| 维度 | Jaeger 原始 | 归一化后 |
+|------|------------|---------|
+| 属性访问 | 扫描 `{key,type,value}` 数组 | 扁平字段 `span.cache_hit` |
+| 单位 | 微秒 | 毫秒 |
+| 父子关系 | `references` 数组 | `parent_span_id` 字段 |
+| 服务名 | 按 `processID` join | 直接 `service` 字段 |
+| 噪音 tag | 全带 | 白名单外丢 `extra`，默认不发给 AI |
+| 聚合 | 无，只返回原始 trace | obs-api 提供 `/traces/stats` |
+
+一个 span 原始约 30 行 / ~600 token，归一化后约 8 行 / ~120 token，差 ~5 倍，且 AI 不必自行处理多态数组。
+
 ## 2. 规范 span 投影（保留最小集）
 
 ```json
@@ -72,16 +102,17 @@ OTel span 里塞满 AI 用不到的东西（`trace_state`、`links`、`events`�
 
 聚合查询用扁平投影 + 对 `(service, operation, start_ms, status, duration_ms)` 建索引；下钻才还原树。
 
-## 5. 存储：双写（ADR-002）
+## 5. 存储：双写，写入带外（ADR-002 / ADR-006 / ADR-007）
 
 ```
-span 结束
-   ├─→ OTLP → Jaeger        （给人看的调试 UI，保持现状）
-   └─→ 自定义 SpanProcessor → 归一化投影 → MySQL 分析库   （给 AI 查的）
+backend ──OTLP──> Jaeger (4318)             [给人看：全量原始，临时内存]
+        └─OTLP──> obs-api (4319) ──归一化──> MySQL   [给 AI 查：策展，持久]
 ```
 
-- Jaeger 继续当「人类瀑布图 UI」，不动。
-- 新增一个 **SpanProcessor**（OTel `SpanProcessor.OnEnd` 回调），把 span 投影成第 2 节的格式，写进 MySQL。这样「统一格式 + 存储 + 查询 + 保留时长」完全在自己手里，不受 Jaeger all-in-one 临时存储限制。
+- **Jaeger = 全量原始 + 人类瀑布图 UI，临时内存存储**；**MySQL = 归一化策展 + AI 聚合分析，持久存储**。两者分工，不是替代。
+- **写入必须带外（ADR-007）**：不由 backend 进程内 `SpanProcessor` 直写 MySQL（backend 崩了最后一个 span 就丢），而由独立 **obs-api** 的 OTLP 接收器承担。backend 配两个 OTLP exporter（OTel Go SDK 原生支持）即可，不碰 Jaeger 现有链路。
+
+> 为什么必须落 MySQL（而不是直查 Jaeger）：Jaeger all-in-one 是内存存储、重启即丢，无法回答「昨天这个接口为什么变慢」；且 `/traces/stats` 的 p50/p95/p99 聚合要对 `(service, operation, start_ms)` 建索引，Jaeger 没有现成接口。落库是持久化 + 自控聚合的前提。
 
 ### 5.1 泛化 span 表（ADR-004）
 

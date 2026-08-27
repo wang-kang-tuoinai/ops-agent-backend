@@ -78,6 +78,7 @@
 | 文档 | 内容 |
 |------|------|
 | [logging.md](logging.md) | 结构化日志模型、模板指纹、阶梯检索、查询接口、泛化表结构 |
+| [logging-standard.md](logging-standard.md) | 日志编码规范：4 类日志处置、level 语义、字段命名、哪里记、err 进 attrs 铁律 |
 | [tracing.md](tracing.md) | span 归一化、统一词汇映射表、双写存储、查询接口 |
 | [sdk.md](sdk.md) | 五样 SDK 原语、「新增 domain 走查」、Tool 接口与 MCP 适配 |
 

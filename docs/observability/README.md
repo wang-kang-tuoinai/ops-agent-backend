@@ -83,6 +83,22 @@
 | ADR-006 | 独立 **obs-api** 服务承担查询（tools+providers）与写入（OTLP 接收归一化落 MySQL）双角色，与 backend 解耦 | 可观测性必须带外：backend 崩了 agent 仍能查询诊断它 | 见 [README.md](README.md) 架构 |
 | ADR-007 | 日志/trace 写入由 obs-api/独立进程完成，**不用 backend 进程内直写** | 崩溃瞬间最后几条数据才能保留 | 见 [tracing.md](tracing.md)、[logging.md](logging.md) |
 
+| ADR-008 | obs-api 初版只做查询，写入仍由 backend 进程内完成 | 
+  故障隔离的核心收益（backend 崩了仍能查）只需查询侧独立即可获得；
+  自建 OTLP 接收器工作量大、有技术风险 | 
+  代价：backend 猝死时最后几条日志会丢；何时补：需要保证崩溃瞬间数据完整性时 |
+
+| ADR-009 | trace 查询实时代理 Jaeger，暂不落自建 MySQL 分析库 |
+  避免自建 OTLP 接收器；先验证归一化和聚合的设计是否好用 |
+  代价：受 Jaeger 内存存储限制，重启即丢、无法做长周期聚合；
+  何时补：需要"上周同期对比"这类跨时间窗分析时 |
+
+| ADR-010 | 观测数据使用独立 MySQL 实例（obs-mysql），不与业务库共用 |
+  故障隔离要完整：独立进程 + 独立存储，业务库故障时仍能查询诊断数据；
+  边际成本低（一个 compose service + 一个连接） |
+  代价：日志与业务表无法 JOIN，但诊断路径本就不依赖 JOIN（走 trace_id 关联） |
+  
+目前按ADR-008/009执行
 ## 6. 文档导航
 
 | 文档 | 内容 |

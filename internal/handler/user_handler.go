@@ -65,6 +65,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		UserName: newUser.Username,
 	}
 	publishOK := true
+	//TODO Trace Context没有注入AMQP header，导致consumer那边没有traceID
 	if err := h.publisher.PublishUserRegister(ctx, event); err != nil {
 		span.RecordError(err)
 		publishOK = false

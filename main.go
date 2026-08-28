@@ -12,6 +12,7 @@ import (
 	"ops-agent-backend/internal/handler"
 	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/mq"
+	"ops-agent-backend/internal/observability"
 	"ops-agent-backend/internal/repository/mysql"
 	"ops-agent-backend/internal/router"
 	"ops-agent-backend/internal/utils"
@@ -81,6 +82,36 @@ func main() {
 		log.Fatal("注册 GORM tracing 插件失败:", err)
 	}
 	repo := mysql.NewUserMysqlRepository(db)
+
+	// 初始化obs-mysql
+	obs_dsn := "root:root@tcp(127.0.0.1:3307)/observability?charset=utf8mb4&parseTime=True&loc=Local"
+	obs_dsn = getEnv("OBS_MYSQL_DSN", obs_dsn)
+	var obs_db *gorm.DB
+	err = withRetry("ObsMySQL", 5, 2*time.Second, func() error {
+		var openErr error
+		obs_db, openErr = gorm.Open(mysqlDriver.Open(obs_dsn), &gorm.Config{
+			TranslateError: true,
+		})
+		if openErr != nil {
+			return openErr
+		}
+		sqlDB, err := obs_db.DB()
+		if err != nil {
+			return err
+		}
+		if err := sqlDB.Ping(); err != nil {
+			sqlDB.Close()
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		log.Println("连接obs_mysql失败:", err)
+	}
+	if err := obs_db.AutoMigrate(&observability.LogEntry{}); err != nil {
+		log.Println("创建obs_mysql表失败:", err)
+	}
+	// 初始化Redis
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
 	rdb := redis.NewClient(&redis.Options{
 		Addr:            redisAddr,

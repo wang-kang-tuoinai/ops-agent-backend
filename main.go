@@ -111,6 +111,9 @@ func main() {
 	if err := obs_db.AutoMigrate(&observability.LogEntry{}); err != nil {
 		log.Println("创建obs_mysql表失败:", err)
 	}
+
+	//创建Recorder
+	recorder := observability.NewRecorder(obs_db, "ops-agent-backend")
 	// 初始化Redis
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
 	rdb := redis.NewClient(&redis.Options{
@@ -157,7 +160,7 @@ func main() {
 		log.Fatal("创建Publisher失败:", err)
 	}
 	defer pub.Close()
-	userHandler := handler.NewUserHandler(repoCache, redisLocker, bf, pub)
+	userHandler := handler.NewUserHandler(repoCache, redisLocker, bf, pub, recorder)
 	r := router.SetupRouter(userHandler)
 	srv := &http.Server{
 		Addr:    ":8080",

@@ -8,6 +8,7 @@ import (
 	"ops-agent-backend/internal/bloom"
 	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/mq"
+	obs "ops-agent-backend/internal/observability"
 	"ops-agent-backend/internal/repository"
 	"ops-agent-backend/internal/utils"
 	"strconv"
@@ -27,10 +28,11 @@ type UserHandler struct {
 	redisLocker    *utils.RedisLocker
 	bloomFilter    *bloom.BloomFilter
 	publisher      *mq.Publisher
+	recorder       *obs.Recorder
 }
 
-func NewUserHandler(repo repository.UserRepository, redisLocker *utils.RedisLocker, bf *bloom.BloomFilter, pb *mq.Publisher) *UserHandler {
-	return &UserHandler{userRepository: repo, redisLocker: redisLocker, bloomFilter: bf, publisher: pb}
+func NewUserHandler(repo repository.UserRepository, redisLocker *utils.RedisLocker, bf *bloom.BloomFilter, pb *mq.Publisher, recorder *obs.Recorder) *UserHandler {
+	return &UserHandler{userRepository: repo, redisLocker: redisLocker, bloomFilter: bf, publisher: pb, recorder: recorder}
 }
 func (h *UserHandler) CreateUser(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -38,7 +40,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	defer span.End()
 	var req model.CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err)
+		h.BadRequest(c, err)
 		return
 	}
 	var u model.User
@@ -48,14 +50,14 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	u.Email = req.Email
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		HandleError(c, err)
+		h.HandleError(c, err, nil)
 		return
 	}
 	u.Password = string(hashedBytes)
 	u.Username = req.Username
 	newUser, err := h.userRepository.Create(ctx, u)
 	if err != nil {
-		HandleError(c, err)
+		h.HandleError(c, err, nil)
 		return
 	}
 	h.bloomFilter.Add(fmt.Sprintf("%d", newUser.ID))
@@ -70,6 +72,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		span.RecordError(err)
 		publishOK = false
 		log.Printf("用户注册事件发布失败:userId=%d err=%v\n", newUser.ID, err)
+		h.recorder.Record(ctx, obs.LevelWarn, obs.TplPublishFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": newUser.ID}))
 	}
 	span.SetAttributes(attribute.Bool("handler.publish", publishOK))
 	c.JSON(http.StatusOK, model.ToUserResponse(newUser))
@@ -80,17 +83,18 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	strID := c.Param("id")
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
-		BadRequest(c, err)
+		h.BadRequest(c, err)
 		return
 	}
 	if !h.bloomFilter.MightContain(strID) {
 		log.Println("blocked by bloom filter:", strID)
-		HandleError(c, repository.ErrUserNotFound)
+		h.recorder.Record(ctx, obs.LevelDebug, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
+		h.HandleError(c, repository.ErrUserNotFound, map[string]any{"user_id": id})
 		return
 	}
 	u, err := h.userRepository.GetById(ctx, id)
 	if err != nil {
-		HandleError(c, err)
+		h.HandleError(c, err, map[string]any{"user_id": id})
 		return
 	}
 	c.JSON(http.StatusOK, model.ToUserResponse(u))
@@ -116,7 +120,7 @@ func (h *UserHandler) ListUser(c *gin.Context) {
 	offset := (page - 1) * limit
 	users, err := h.userRepository.List(ctx, offset, limit)
 	if err != nil {
-		HandleError(c, err)
+		h.HandleError(c, err, map[string]any{"offset": offset, "limit": limit})
 		return
 	}
 	resp := make([]model.UserResponse, 0, len(users))
@@ -133,12 +137,12 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	strID := c.Param("id")
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
-		BadRequest(c, err)
+		h.BadRequest(c, err)
 		return
 	}
 	var req model.UpdateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		BadRequest(c, err)
+		h.BadRequest(c, err)
 		return
 	}
 	lockKey := fmt.Sprintf("lock:user:%d", id)
@@ -149,13 +153,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			span.SetStatus(codes.Error, "try get lock failed")
 		}
 		span.SetAttributes(attribute.Bool("handler.lock", false))
-		HandleError(c, err)
+		h.HandleError(c, err, map[string]any{"user_id": id})
 		return
 	}
 	span.SetAttributes(attribute.Bool("handler.lock", true))
 	defer func() {
 		if err := h.redisLocker.TryUnLock(ctx, lockKey, lockValue); err != nil {
 			span.SetAttributes(attribute.Bool("handler.unlock", false))
+			h.recorder.Record(ctx, obs.LevelWarn, obs.TplUnlockFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"lock_key": lockKey}))
 			log.Println("Try unlock redis lock failed:", err)
 			return
 		}
@@ -164,7 +169,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 
 	updated, err := h.userRepository.Update(ctx, id, req.ToUserUpdate())
 	if err != nil {
-		HandleError(c, err)
+		h.HandleError(c, err, map[string]any{"user_id": id})
 		return
 	}
 	c.JSON(http.StatusOK, model.ToUserResponse(updated))
@@ -175,11 +180,17 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	strID := c.Param("id")
 	id, err := strconv.ParseInt(strID, 10, 64)
 	if err != nil {
-		BadRequest(c, err)
+		h.BadRequest(c, err)
+		return
+	}
+	if !h.bloomFilter.MightContain(strID) {
+		log.Println("blocked by bloom filter:", strID)
+		h.recorder.Record(ctx, obs.LevelDebug, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
+		h.HandleError(c, repository.ErrUserNotFound, map[string]any{"user_id": id})
 		return
 	}
 	if err := h.userRepository.Delete(ctx, id); err != nil {
-		HandleError(c, err)
+		h.HandleError(c, err, map[string]any{"user_id": id})
 		return
 	}
 	c.Status(http.StatusOK)

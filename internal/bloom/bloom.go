@@ -12,6 +12,7 @@ type BloomFilter struct {
 	hashNum uint32
 }
 
+// TODO 持久化布隆过滤器
 func NewBloomFilter(size uint32, hashNum uint32) *BloomFilter {
 	return &BloomFilter{
 		bits:    make([]byte, (size+7)/8),

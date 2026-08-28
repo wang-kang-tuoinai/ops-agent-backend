@@ -17,6 +17,8 @@ const (
 	TplInternalError = "internal server error"
 
 	// 非错误的观测点（在发生处记录）
-	TplCacheMiss    = "cache miss for user {user_id}"
-	TplBloomBlocked = "request blocked by bloom filter for {id}"
+	TplCacheMiss       = "cache miss for user {user_id}"
+	TplBloomBlocked    = "request blocked by bloom filter for {id}"
+	TplPublishFailed   = "user register event publish failed for user {user_id}"
+	TplUnlockFailed    = "distributed lock release failed for {lock_key}"
 )

@@ -128,7 +128,7 @@ func main() {
 	if err := redisotel.InstrumentTracing(rdb, redisotel.WithDBStatement(false)); err != nil {
 		log.Fatal("注册 Redis tracing 失败:", err)
 	}
-	repoCache := cache.NewUserCacheRepository(repo, rdb)
+	repoCache := cache.NewUserCacheRepository(repo, rdb, recorder)
 	bf := bloom.NewBloomFilter(10000, 4)
 	userIDs, err := repoCache.ListAllIDs(context.Background())
 	if err != nil {

@@ -40,6 +40,11 @@ func WithAttrs(attrs map[string]any) LogOption {
 	}
 }
 func (r *Recorder) Record(ctx context.Context, level, template string, opts ...LogOption) {
+	if r == nil {
+		// 可选：记录日志或直接返回
+		log.Println("Recorder is nil, skip recording")
+		return
+	}
 	entry := LogEntry{
 		Ts:       time.Now().UnixMilli(),
 		Service:  r.service,

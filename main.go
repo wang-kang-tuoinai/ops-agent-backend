@@ -161,7 +161,7 @@ func main() {
 	}
 	defer pub.Close()
 	userHandler := handler.NewUserHandler(repoCache, redisLocker, bf, pub, recorder)
-	r := router.SetupRouter(userHandler)
+	r := router.SetupRouter(userHandler, recorder)
 	srv := &http.Server{
 		Addr:    ":8080",
 		Handler: r,

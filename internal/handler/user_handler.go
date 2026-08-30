@@ -88,7 +88,7 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	}
 	if !h.bloomFilter.MightContain(strID) {
 		log.Println("blocked by bloom filter:", strID)
-		h.recorder.Record(ctx, obs.LevelDebug, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
+		h.recorder.Record(ctx, obs.LevelInfo, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
 		h.HandleError(c, repository.ErrUserNotFound, map[string]any{"user_id": id})
 		return
 	}
@@ -185,7 +185,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	}
 	if !h.bloomFilter.MightContain(strID) {
 		log.Println("blocked by bloom filter:", strID)
-		h.recorder.Record(ctx, obs.LevelDebug, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
+		h.recorder.Record(ctx, obs.LevelInfo, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
 		h.HandleError(c, repository.ErrUserNotFound, map[string]any{"user_id": id})
 		return
 	}

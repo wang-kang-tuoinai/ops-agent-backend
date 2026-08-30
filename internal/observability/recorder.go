@@ -34,8 +34,13 @@ func WithRoute(route string) LogOption {
 
 func WithAttrs(attrs map[string]any) LogOption {
 	return func(e *LogEntry) {
-		if data, err := json.Marshal(attrs); err != nil {
+		if len(attrs) == 0 {
+			return
+		}
+		if data, err := json.Marshal(attrs); err == nil {
 			e.Attrs = string(data)
+		} else {
+			log.Println("marshal log attrs failed:", err)
 		}
 	}
 }
@@ -50,6 +55,7 @@ func (r *Recorder) Record(ctx context.Context, level, template string, opts ...L
 		Service:  r.service,
 		Level:    level,
 		Template: template,
+		Attrs:    "{}",
 		TraceID:  traceIDFromContext(ctx),
 	}
 	for _, opt := range opts {

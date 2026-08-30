@@ -60,7 +60,7 @@ func (c *CacheUserRepository) Create(ctx context.Context, u model.User) (model.U
 		storeOK = false
 		log.Println("Cache user failed:", err)
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheStoreFailed,
-			obs.WithAttrs(map[string]any{"user_id": newUser.ID}))
+			obs.WithAttrs(map[string]any{"user_id": newUser.ID, "err": err.Error()}))
 	}
 	span.SetAttributes(attribute.Bool("cache.store", storeOK))
 	return newUser, nil
@@ -103,7 +103,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 			storeOK = false
 			log.Println("Cache user failed:", err)
 			c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheStoreFailed,
-				obs.WithAttrs(map[string]any{"user_id": id}))
+				obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
 		}
 		span.SetAttributes(attribute.Bool("cache.store", storeOK))
 		return u, nil
@@ -113,7 +113,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 		span.RecordError(err)
 		span.SetAttributes(attribute.Bool("cache.hit", false))
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheReadFailed,
-			obs.WithAttrs(map[string]any{"user_id": id}))
+			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
 		u, err := c.next.GetById(ctx, id)
 		if err != nil {
 			return model.User{}, err
@@ -169,7 +169,7 @@ func (c *CacheUserRepository) Update(ctx context.Context, id int64, upd model.Us
 		delOK = false
 		log.Println("Del user in redis:", err)
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheDelFailed,
-			obs.WithAttrs(map[string]any{"user_id": id}))
+			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
 	}
 	span.SetAttributes(attribute.Bool("cache.del", delOK))
 	return newUser, nil
@@ -193,7 +193,7 @@ func (c *CacheUserRepository) Delete(ctx context.Context, id int64) error {
 		delOK = false
 		log.Println("Del user in redis failed:", err)
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheDelFailed,
-			obs.WithAttrs(map[string]any{"user_id": id}))
+			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
 	}
 	span.SetAttributes(attribute.Bool("cache.del", delOK))
 	return nil

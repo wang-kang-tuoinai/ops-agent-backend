@@ -17,6 +17,7 @@ type Publisher struct {
 	mu      sync.Mutex
 }
 
+// TODO RabbitMQ挂了之后即使后面恢复了，但是ch仍然不能自动重连
 func NewPublisher(conn *amqp.Connection) (*Publisher, error) {
 	ch, err := conn.Channel()
 	if err != nil {

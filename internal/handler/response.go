@@ -35,7 +35,7 @@ func (h *UserHandler) HandleError(c *gin.Context, err error, attrs map[string]an
 			attrs = make(map[string]any)
 		}
 		attrs["err"] = err.Error()
-		h.recorder.Record(ctx, obs.LevelError, obs.TplInternalError, obs.WithRoute(route), obs.WithAttrs(map[string]any{"err": err.Error()}))
+		h.recorder.Record(ctx, obs.LevelError, obs.TplInternalError, obs.WithRoute(route), obs.WithAttrs(attrs))
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "服务器内部错误"})
 	}
 }

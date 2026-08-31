@@ -14,7 +14,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-// TODO docker compose up有时候consumer没有正常启动
+// TODO RabbitMQ 重启后,消费者会停止消费
 func main() {
 	// 初始化RabbitMQ的连接
 	amqp_addr := getEnv("RABBITMQ_ADDR", "amqp://guest:guest@localhost:5672/")

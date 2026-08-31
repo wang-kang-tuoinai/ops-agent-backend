@@ -52,7 +52,7 @@ func (c *CacheUserRepository) Create(ctx context.Context, u model.User) (model.U
 	}
 
 	key := fmt.Sprintf("user:%d", newUser.ID)
-	redisCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	redisCtx, cancel := context.WithTimeout(ctx, 600*time.Millisecond)
 	defer cancel()
 	err = c.redis.Set(redisCtx, key, jsonData, 10*time.Minute).Err()
 	if err != nil {
@@ -73,7 +73,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 	defer span.End()
 	span.SetAttributes(attribute.Int64("user.id", id))
 	key := fmt.Sprintf("user:%d", id)
-	redisGetCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+	redisGetCtx, cancel := context.WithTimeout(ctx, 600*time.Millisecond)
 	defer cancel()
 	jsonData, err := c.redis.Get(redisGetCtx, key).Bytes()
 	if err == redis.Nil {
@@ -95,7 +95,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 			log.Println("Marshal user for cache failed:", err)
 			return u, nil
 		}
-		redisSetCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+		redisSetCtx, cancel := context.WithTimeout(ctx, 600*time.Millisecond)
 		defer cancel()
 		err = c.redis.Set(redisSetCtx, key, data, 10*time.Minute).Err()
 		storeOK := true
@@ -160,7 +160,7 @@ func (c *CacheUserRepository) Update(ctx context.Context, id int64, upd model.Us
 	}
 	//成功从数据库里更新数据之后,把Redis里的旧数据删掉
 	key := fmt.Sprintf("user:%d", id)
-	redisDelCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	redisDelCtx, cancel := context.WithTimeout(ctx, 600*time.Millisecond)
 	defer cancel()
 	_, err = c.redis.Del(redisDelCtx, key).Result()
 	delOK := true
@@ -184,7 +184,7 @@ func (c *CacheUserRepository) Delete(ctx context.Context, id int64) error {
 	}
 	// 删除Redis里的数据
 	key := fmt.Sprintf("user:%d", id)
-	redisDelCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	redisDelCtx, cancel := context.WithTimeout(ctx, 600*time.Millisecond)
 	defer cancel()
 	_, err := c.redis.Del(redisDelCtx, key).Result()
 	delOK := true

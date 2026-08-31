@@ -117,13 +117,14 @@ func main() {
 	// 初始化Redis
 	redisAddr := getEnv("REDIS_ADDR", "localhost:6379")
 	rdb := redis.NewClient(&redis.Options{
-		Addr:            redisAddr,
-		DialTimeout:     5 * time.Second, // 建立连接的超时时间
-		ReadTimeout:     3 * time.Second, // 读超时
-		WriteTimeout:    3 * time.Second, // 写超时
-		MaxRetries:      3,               // 命令执行失败时的最大重试次数
-		MinRetryBackoff: 8 * time.Millisecond,
-		MaxRetryBackoff: 512 * time.Millisecond,
+		Addr: redisAddr,
+		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 200 * time.Millisecond}
+			return d.DialContext(ctx, network, addr)
+		}, //建立TCP连接的超时，包括DNS解析
+		ReadTimeout:  300 * time.Millisecond, // 读超时
+		WriteTimeout: 300 * time.Millisecond, // 写超时
+		MaxRetries:   0,                      // 故意不设置重试次数，重试会消耗ctx预算，把底层错误掩盖成超时
 	})
 	if err := redisotel.InstrumentTracing(rdb, redisotel.WithDBStatement(false)); err != nil {
 		log.Fatal("注册 Redis tracing 失败:", err)

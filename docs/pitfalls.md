@@ -35,3 +35,18 @@
 原因：当使用容器之后，容器里的localhost不再是宿主机了，所以直接localhost访问会有问题
 解决办法：再Docker-compose.yml里配置容器的环境变量，然后代码里优先读取环境变量，如果读到了，说明是用容器启动，那么直接用环境变量，如果没有读取到环境变量，就用本地连接当默认值。
 教训：配置走环境变量加默认值，一套代码可以同时适配两种运行环境。
+
+## go-redis 超时参数无法覆盖 DNS 解析失败的场景
+
+现象：Redis 容器 stop 后，无论设置 DialTimeout 还是自定义 Dialer，
+错误始终是外层 ctx 的 context deadline exceeded，耗时等于 ctx 超时值。
+
+对照实验（stop vs pause）：
+- pause（容器在、进程冻结）→ DNS 可解析 → ReadTimeout 生效 → i/o timeout
+- stop（容器没了）→ DNS 解析失败 → 卡在解析阶段 → 走到 ctx 超时
+
+尝试过但未解决：自定义 Dialer + net.Dialer.Timeout。
+推测容器环境下 DNS 解析阶段不受 Go context 约束，未进一步验证。
+
+结论：不再依赖错误信息推断服务状态，改用 health 接口直接观测。
+教训：能直接观测的状态，不要从错误信息反推。

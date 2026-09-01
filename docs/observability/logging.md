@@ -124,7 +124,17 @@ CREATE TABLE logs (
 
 ### 6.2 `GET /logs/templates` — 模板（Level 1）
 
-请求：`?service=&level=&start=&end=&limit=20`
+按维度聚合出 Top 模板（每个模板的计数 + 一条代表性样例）。模板数量天然有界（≈ 代码里 `log` 语句的数量，通常几十个），所以**不分页、一次返回全部**，`limit` 仅作兜底上限。
+
+#### 6.2 请求参数
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `start` / `end` | int64 | ✅ | 秒级时间窗，**必传** |
+| `service` | string | 否 | 只统计某个服务 |
+| `level` | string | 否 | 只统计某个级别（`DEBUG/INFO/WARN/ERROR`） |
+| `route` | string | 否 | 只统计某个路由（如 `/users`） |
+| `limit` | int | 否 | 返回模板数上限，默认 200 |
 
 ```json
 {
@@ -136,14 +146,30 @@ CREATE TABLE logs (
       "last_seen": 1787003500,
       "sample": { "ts": 1787003500, "trace_id": "a1b2...", "attrs": { "addr": "redis:6379" } }
     }
-  ],
-  "has_more": false
+  ]
 }
 ```
 
-### 6.3 `GET /logs/search` — 过滤原始（Level 2）
+- `sample` 是每个模板的一条代表性原始日志（取最新一条），模板 + `sample.attrs` 可还原完整消息，`trace_id` 可跳 Level 3 看链路。
+- 想看某个模板的更多原始行，下钻 Level 2：`GET /logs/search?template=...`（有界返回 + 游标分页）。
 
-请求：`?trace_id=&template=&level=&route=&keyword=&start=&end=&limit=50`
+### 6.3 `GET /logs/search` — 过滤原始日志（Level 2）
+
+通用原始日志检索：按任意维度过滤，返回**真实的原始日志行**（非聚合）。`template` 只是过滤器之一，也可按 `trace_id` / `route` / `keyword` 等组合查询。
+
+#### 6.3 请求参数
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `start` / `end` | int64 | ✅ | 秒级时间窗，**必传**以约束扫描范围 |
+| `service` | string | 否 | 只查某个服务的日志 |
+| `limit` | int | 否 | 每页条数，默认 50，封顶 100 |
+| `cursor` | string | 否 | 上页返回的 `next_cursor`（`ts:id` 复合值），用于翻页 |
+| `trace_id` | string | 否 | 只查某个 trace 的日志 |
+| `template` | string | 否 | 只查某个模板的日志 |
+| `level` | string | 否 | 只查某个级别（`DEBUG/INFO/WARN/ERROR`） |
+| `route` | string | 否 | 只查某个路由（如 `/users`） |
+| `keyword` | string | 否 | 模糊子串搜索（`LIKE`），须配合时间窗 + limit |
 
 ```json
 {
@@ -151,13 +177,14 @@ CREATE TABLE logs (
     { "ts": 1787003500, "level": "ERROR", "template": "redis connection refused to {addr}",
       "attrs": { "addr": "redis:6379" }, "trace_id": "a1b2..." }
   ],
-  "next_cursor": 1787003500,
+  "next_cursor": "1787003500:12345",
   "has_more": true
 }
 ```
 
-- `keyword` 走参数绑定，杜绝注入；`limit` 封顶（如 100）。
-- 每个样本带 `trace_id`，供 AI 跳 Level 3（[tracing.md](tracing.md) 的 `GET /traces/{trace_id}`）。
+- **分页**：游标分页（keyset）。`next_cursor` 是上页最后一条的 `ts:id` 复合值；下一页传 `?cursor=<next_cursor>`，按 `(ts, id)` 倒序取更旧日志（`ts` 毫秒级会重复，用 `id` 做 tie-breaker）。
+- **`keyword`**：对消息内容（模板字符串 / `attrs`）做子串匹配，走参数绑定杜绝注入；因 `LIKE '%x%'` 全表扫，必须配合 `start/end` + `limit`。
+- 每条日志带 `trace_id`，AI 据此跳 Level 3（[tracing.md](tracing.md) 的 `GET /traces/{trace_id}`）。
 
 ## 7. 中间件（自动 access log）
 

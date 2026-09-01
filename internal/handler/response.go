@@ -17,16 +17,15 @@ type ErrorResponse struct {
 
 func (h *UserHandler) HandleError(c *gin.Context, err error, attrs map[string]any) {
 	ctx := c.Request.Context()
-	route := c.FullPath()
 	switch {
 	case errors.Is(err, repository.ErrUserNotFound):
-		h.recorder.Record(ctx, obs.LevelInfo, obs.TplUserNotFound, obs.WithRoute(route), obs.WithMethod(c.Request.Method), obs.WithAttrs(attrs))
+		h.recorder.Record(ctx, obs.LevelInfo, obs.TplUserNotFound, obs.WithAttrs(attrs))
 		c.JSON(http.StatusNotFound, ErrorResponse{Error: "用户不存在"})
 	case errors.Is(err, repository.ErrDuplicateUser):
-		h.recorder.Record(ctx, obs.LevelInfo, obs.TplDuplicateUser, obs.WithRoute(route), obs.WithMethod(c.Request.Method), obs.WithAttrs(attrs))
+		h.recorder.Record(ctx, obs.LevelInfo, obs.TplDuplicateUser, obs.WithAttrs(attrs))
 		c.JSON(http.StatusConflict, ErrorResponse{Error: "用户已存在"})
 	case errors.Is(err, utils.ErrLockConflict):
-		h.recorder.Record(ctx, obs.LevelWarn, obs.TplLockConflict, obs.WithRoute(route), obs.WithMethod(c.Request.Method), obs.WithAttrs(attrs))
+		h.recorder.Record(ctx, obs.LevelWarn, obs.TplLockConflict, obs.WithAttrs(attrs))
 		c.JSON(http.StatusConflict, ErrorResponse{Error: "该用户正在被修改,请稍后再试"})
 	default:
 		//未预期的错误不暴露内部细节
@@ -35,15 +34,13 @@ func (h *UserHandler) HandleError(c *gin.Context, err error, attrs map[string]an
 			attrs = make(map[string]any)
 		}
 		attrs["err"] = err.Error()
-		h.recorder.Record(ctx, obs.LevelError, obs.TplInternalError, obs.WithRoute(route), obs.WithMethod(c.Request.Method), obs.WithAttrs(attrs))
+		h.recorder.Record(ctx, obs.LevelError, obs.TplInternalError, obs.WithAttrs(attrs))
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "服务器内部错误"})
 	}
 }
 
 func (h *UserHandler) BadRequest(c *gin.Context, err error) {
 	h.recorder.Record(c.Request.Context(), obs.LevelDebug, obs.TplBadRequest,
-		obs.WithRoute(c.FullPath()),
-		obs.WithMethod(c.Request.Method),
 		obs.WithAttrs(map[string]any{"err": err.Error()}),
 	)
 	c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

@@ -40,7 +40,7 @@ func (h *UserHandler) HandleError(c *gin.Context, err error, attrs map[string]an
 }
 
 func (h *UserHandler) BadRequest(c *gin.Context, err error) {
-	h.recorder.Record(c.Request.Context(), obs.LevelDebug, obs.TplBadRequest,
+	h.recorder.Record(c.Request.Context(), obs.LevelInfo, obs.TplBadRequest,
 		obs.WithAttrs(map[string]any{"err": err.Error()}),
 	)
 	c.JSON(http.StatusBadRequest, ErrorResponse{Error: err.Error()})

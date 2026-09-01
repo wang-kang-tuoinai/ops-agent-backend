@@ -119,6 +119,8 @@ CREATE TABLE logs (
   "generated_at": 1787003600
 }
 ```
+> 已知：一个 5xx 请求会产生两条 ERROR（access log 一条 + 业务错误一条），
+> error_rate 的绝对值偏高约一倍。该指标用于观察趋势变化，不代表精确错误率。
 
 ### 6.2 `GET /logs/templates` — 模板（Level 1）
 

@@ -63,12 +63,10 @@ func AccessLogMiddleware(recorder *Recorder) gin.HandlerFunc {
 
 		status := c.Writer.Status()
 		level := LevelInfo
-		switch {
-		case status >= 500:
+		if status >= 500 {
 			level = LevelError
-		case status >= 400:
-			level = LevelWarn
 		}
+		// 4xx 保持 INFO，具体的业务判断交给 HandleError
 
 		recorder.Record(
 			c.Request.Context(),

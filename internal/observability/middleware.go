@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	levelInfo      = "INFO"
 	unmatchedRoute = "<unmatched>"
 )
 
-// AccessLogMiddleware 返回一个 Gin 中间件，将每条 HTTP 请求记录为 INFO access log。
+// AccessLogMiddleware 返回一个 Gin 中间件，将每条 HTTP 请求记录为 access log。
+// 日志级别根据响应状态码决定：5xx → Error，4xx → Warn，其余 → Info。
 // recorder 为 nil 时中间件会跳过记录（不 panic），方便测试。
 func AccessLogMiddleware(recorder *Recorder) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -31,14 +31,23 @@ func AccessLogMiddleware(recorder *Recorder) gin.HandlerFunc {
 			route = unmatchedRoute
 		}
 
+		status := c.Writer.Status()
+		level := LevelInfo
+		switch {
+		case status >= 500:
+			level = LevelError
+		case status >= 400:
+			level = LevelWarn
+		}
+
 		recorder.Record(
 			c.Request.Context(),
-			levelInfo,
+			level,
 			template,
 			WithRoute(route),
 			WithAttrs(map[string]any{
 				"method":      c.Request.Method,
-				"status":      c.Writer.Status(),
+				"status":      status,
 				"duration_ms": time.Since(start).Milliseconds(),
 				"path":        c.Request.URL.Path, // 实际路径，含真实 ID
 			}),

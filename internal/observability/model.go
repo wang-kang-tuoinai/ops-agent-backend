@@ -7,6 +7,7 @@ type LogEntry struct {
 	Service  string `gorm:"type:varchar(64);not null;index:idx_svc_level_ts,priority:1"`
 	Level    string `gorm:"type:varchar(16);not null;index:idx_svc_level_ts,priority:2"`
 	Route    string `gorm:"type:varchar(255);not null;default:'';index:idx_route_ts,priority:1"`
+	Method   string `gorm:"type:varchar(10);not null;default:''"`
 	Template string `gorm:"type:varchar(255);not null;index:idx_template_ts,priority:1"`
 	Attrs    string `gorm:"type:json;not null"`
 	TraceID  string `gorm:"type:varchar(64);not null;default:''"`

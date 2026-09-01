@@ -72,7 +72,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		span.RecordError(err)
 		publishOK = false
 		log.Printf("用户注册事件发布失败:userId=%d err=%v\n", newUser.ID, err)
-		h.recorder.Record(ctx, obs.LevelWarn, obs.TplPublishFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": newUser.ID, "err": err.Error(), "component": "rabbitmq"}))
+		h.recorder.Record(ctx, obs.LevelWarn, obs.TplPublishFailed, obs.WithRoute(c.FullPath()), obs.WithMethod(c.Request.Method), obs.WithAttrs(map[string]any{"user_id": newUser.ID, "err": err.Error(), "component": "rabbitmq"}))
 	}
 	span.SetAttributes(attribute.Bool("handler.publish", publishOK))
 	c.JSON(http.StatusOK, model.ToUserResponse(newUser))
@@ -88,7 +88,7 @@ func (h *UserHandler) GetUser(c *gin.Context) {
 	}
 	if !h.bloomFilter.MightContain(strID) {
 		log.Println("blocked by bloom filter:", strID)
-		h.recorder.Record(ctx, obs.LevelInfo, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
+		h.recorder.Record(ctx, obs.LevelInfo, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithMethod(c.Request.Method), obs.WithAttrs(map[string]any{"user_id": id}))
 		h.HandleError(c, repository.ErrUserNotFound, map[string]any{"user_id": id})
 		return
 	}
@@ -162,7 +162,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	defer func() {
 		if err := h.redisLocker.TryUnLock(ctx, lockKey, lockValue); err != nil {
 			span.SetAttributes(attribute.Bool("handler.unlock", false))
-			h.recorder.Record(ctx, obs.LevelWarn, obs.TplUnlockFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"lock_key": lockKey, "err": err.Error(), "component": "redis"}))
+			h.recorder.Record(ctx, obs.LevelWarn, obs.TplUnlockFailed, obs.WithRoute(c.FullPath()), obs.WithMethod(c.Request.Method), obs.WithAttrs(map[string]any{"lock_key": lockKey, "err": err.Error(), "component": "redis"}))
 			log.Println("Try unlock redis lock failed:", err)
 			return
 		}
@@ -187,7 +187,7 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 	}
 	if !h.bloomFilter.MightContain(strID) {
 		log.Println("blocked by bloom filter:", strID)
-		h.recorder.Record(ctx, obs.LevelInfo, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": id}))
+		h.recorder.Record(ctx, obs.LevelInfo, obs.TplBloomBlocked, obs.WithRoute(c.FullPath()), obs.WithMethod(c.Request.Method), obs.WithAttrs(map[string]any{"user_id": id}))
 		h.HandleError(c, repository.ErrUserNotFound, map[string]any{"user_id": id})
 		return
 	}

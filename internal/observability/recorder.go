@@ -32,6 +32,12 @@ func WithRoute(route string) LogOption {
 	}
 }
 
+func WithMethod(method string) LogOption {
+	return func(e *LogEntry) {
+		e.Method = method
+	}
+}
+
 func WithAttrs(attrs map[string]any) LogOption {
 	return func(e *LogEntry) {
 		if len(attrs) == 0 {
@@ -55,6 +61,8 @@ func (r *Recorder) Record(ctx context.Context, level, template string, opts ...L
 		Service:  r.service,
 		Level:    level,
 		Template: template,
+		Route:    RouteFromContext(ctx),
+		Method:   MethodFromContext(ctx),
 		Attrs:    "{}",
 		TraceID:  traceIDFromContext(ctx),
 	}

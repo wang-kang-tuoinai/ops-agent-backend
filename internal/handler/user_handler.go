@@ -50,7 +50,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	u.Email = req.Email
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		h.HandleError(c, err, nil)
+		h.HandleError(c, fmt.Errorf("handler: hash password: %w", err), nil)
 		return
 	}
 	u.Password = string(hashedBytes)
@@ -72,7 +72,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		span.RecordError(err)
 		publishOK = false
 		log.Printf("用户注册事件发布失败:userId=%d err=%v\n", newUser.ID, err)
-		h.recorder.Record(ctx, obs.LevelWarn, obs.TplPublishFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": newUser.ID, "error": err.Error()}))
+		h.recorder.Record(ctx, obs.LevelWarn, obs.TplPublishFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"user_id": newUser.ID, "err": err.Error(), "component": "rabbitmq"}))
 	}
 	span.SetAttributes(attribute.Bool("handler.publish", publishOK))
 	c.JSON(http.StatusOK, model.ToUserResponse(newUser))
@@ -148,19 +148,21 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	lockKey := fmt.Sprintf("lock:user:%d", id)
 	lockValue, err := h.redisLocker.TryLock(ctx, lockKey, 4*time.Second)
 	if err != nil {
+		attrs := map[string]any{"user_id": id}
 		if !errors.Is(err, utils.ErrLockConflict) {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "try get lock failed")
+			attrs["component"] = "redis"
 		}
 		span.SetAttributes(attribute.Bool("handler.lock", false))
-		h.HandleError(c, err, map[string]any{"user_id": id})
+		h.HandleError(c, err, attrs)
 		return
 	}
 	span.SetAttributes(attribute.Bool("handler.lock", true))
 	defer func() {
 		if err := h.redisLocker.TryUnLock(ctx, lockKey, lockValue); err != nil {
 			span.SetAttributes(attribute.Bool("handler.unlock", false))
-			h.recorder.Record(ctx, obs.LevelWarn, obs.TplUnlockFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"lock_key": lockKey, "err": err.Error()}))
+			h.recorder.Record(ctx, obs.LevelWarn, obs.TplUnlockFailed, obs.WithRoute(c.FullPath()), obs.WithAttrs(map[string]any{"lock_key": lockKey, "err": err.Error(), "component": "redis"}))
 			log.Println("Try unlock redis lock failed:", err)
 			return
 		}

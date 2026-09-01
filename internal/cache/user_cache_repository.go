@@ -3,6 +3,7 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"ops-agent-backend/internal/model"
@@ -60,7 +61,7 @@ func (c *CacheUserRepository) Create(ctx context.Context, u model.User) (model.U
 		storeOK = false
 		log.Println("Cache user failed:", err)
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheStoreFailed,
-			obs.WithAttrs(map[string]any{"user_id": newUser.ID, "err": err.Error()}))
+			obs.WithAttrs(map[string]any{"user_id": newUser.ID, "err": err.Error(), "component": "redis"}))
 	}
 	span.SetAttributes(attribute.Bool("cache.store", storeOK))
 	return newUser, nil
@@ -76,10 +77,10 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 	redisGetCtx, cancel := context.WithTimeout(ctx, 600*time.Millisecond)
 	defer cancel()
 	jsonData, err := c.redis.Get(redisGetCtx, key).Bytes()
-	if err == redis.Nil {
+	if errors.Is(err, redis.Nil) {
 		span.SetAttributes(attribute.Bool("cache.hit", false))
 		c.recorder.Record(ctx, obs.LevelDebug, obs.TplCacheMiss,
-			obs.WithAttrs(map[string]any{"user_id": id}))
+			obs.WithAttrs(map[string]any{"user_id": id, "component": "redis"}))
 		// Redis里数据不存在,从repository层获取数据
 		u, err := c.next.GetById(ctx, id)
 		if err != nil {
@@ -103,7 +104,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 			storeOK = false
 			log.Println("Cache user failed:", err)
 			c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheStoreFailed,
-				obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
+				obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error(), "component": "redis"}))
 		}
 		span.SetAttributes(attribute.Bool("cache.store", storeOK))
 		return u, nil
@@ -113,7 +114,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 		span.RecordError(err)
 		span.SetAttributes(attribute.Bool("cache.hit", false))
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheReadFailed,
-			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
+			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error(), "component": "redis"}))
 		u, err := c.next.GetById(ctx, id)
 		if err != nil {
 			return model.User{}, err
@@ -125,7 +126,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 		var cu CachedUser
 		if err := json.Unmarshal(jsonData, &cu); err != nil {
 			span.RecordError(err)
-			return model.User{}, err
+			return model.User{}, fmt.Errorf("cache: unmarshal cached user: %w", err)
 		}
 		return cu.ToModelUser(), nil
 	}
@@ -169,7 +170,7 @@ func (c *CacheUserRepository) Update(ctx context.Context, id int64, upd model.Us
 		delOK = false
 		log.Println("Del user in redis:", err)
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheDelFailed,
-			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
+			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error(), "component": "redis"}))
 	}
 	span.SetAttributes(attribute.Bool("cache.del", delOK))
 	return newUser, nil
@@ -193,7 +194,7 @@ func (c *CacheUserRepository) Delete(ctx context.Context, id int64) error {
 		delOK = false
 		log.Println("Del user in redis failed:", err)
 		c.recorder.Record(ctx, obs.LevelWarn, obs.TplCacheDelFailed,
-			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error()}))
+			obs.WithAttrs(map[string]any{"user_id": id, "err": err.Error(), "component": "redis"}))
 	}
 	span.SetAttributes(attribute.Bool("cache.del", delOK))
 	return nil

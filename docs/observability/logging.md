@@ -165,20 +165,23 @@ CREATE TABLE logs (
 | `start` / `end` | int64 | ✅ | 秒级时间窗，**必传**以约束扫描范围 |
 | `service` | string | 否 | 只查某个服务的日志 |
 | `limit` | int | 否 | 每页条数，默认 50，封顶 100 |
-| `cursor` | string | 否 | 上页返回的 `next_cursor`（`ts:id` 复合值），用于翻页 |
+| `cursor` | string | 否 | 上页返回的 `next_cursor`（`ts:id` 复合值，`ts` 为毫秒），用于翻页 |
 | `trace_id` | string | 否 | 只查某个 trace 的日志 |
 | `template` | string | 否 | 只查某个模板的日志 |
 | `level` | string | 否 | 只查某个级别（`DEBUG/INFO/WARN/ERROR`） |
 | `route` | string | 否 | 只查某个路由（如 `/users`） |
+| `method` | string | 否 | 只查某个 HTTP 方法（如 `GET`/`POST`） |
 | `keyword` | string | 否 | 模糊子串搜索（`LIKE`），须配合时间窗 + limit |
 
 ```json
 {
   "items": [
-    { "ts": 1787003500, "level": "ERROR", "template": "redis connection refused to {addr}",
+    { "ts": 1787003500, "level": "ERROR", "service": "ops-agent-backend",
+      "route": "/users", "method": "POST",
+      "template": "redis connection refused to {addr}",
       "attrs": { "addr": "redis:6379" }, "trace_id": "a1b2..." }
   ],
-  "next_cursor": "1787003500:12345",
+  "next_cursor": "1787003500123:12345",
   "has_more": true
 }
 ```

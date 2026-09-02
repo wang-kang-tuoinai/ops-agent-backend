@@ -101,7 +101,7 @@ CREATE TABLE logs (
 
 ### 6.1 `GET /logs/stats` — 统计（Level 0）
 
-请求：`?service=&route=&level=&start=&end=&granularity=60s`
+请求：`?service=&route=&method=&level=&start=&end=&granularity=60s`
 
 ```json
 {
@@ -134,6 +134,7 @@ CREATE TABLE logs (
 | `service` | string | 否 | 只统计某个服务 |
 | `level` | string | 否 | 只统计某个级别（`DEBUG/INFO/WARN/ERROR`） |
 | `route` | string | 否 | 只统计某个路由（如 `/users`） |
+| `method` | string | 否 | 只统计某个 HTTP 方法（如 `GET`/`POST`） |
 | `limit` | int | 否 | 返回模板数上限，默认 200 |
 
 ```json

@@ -142,10 +142,12 @@ CREATE TABLE logs (
   "items": [
     {
       "template": "redis connection refused to {addr}",
+      "level": "ERROR",
       "count": 8432,
       "first_seen": 1787000100,
       "last_seen": 1787003500,
-      "sample": { "ts": 1787003500, "trace_id": "a1b2...", "attrs": { "addr": "redis:6379" } }
+      "sample": { "ts": 1787003500, "trace_id": "a1b2...", "route": "/users", "method": "GET",
+                  "attrs": { "addr": "redis:6379" } }
     }
   ]
 }

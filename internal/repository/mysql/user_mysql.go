@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"ops-agent-backend/internal/apperr"
 	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/repository"
 	"time"
@@ -38,7 +39,7 @@ func (r *UserRepository) Create(ctx context.Context, u model.User) (model.User, 
 		}
 		span.SetStatus(codes.Error, "create failed")
 		span.RecordError(err)
-		return model.User{}, fmt.Errorf("mysql: create user: %w", err)
+		return model.User{}, fmt.Errorf("%w: create user: %w", apperr.ErrMySQL, err)
 	}
 	span.SetAttributes(attribute.Int64("user.id", u.ID))
 	return u, nil
@@ -58,7 +59,7 @@ func (r *UserRepository) GetById(ctx context.Context, id int64) (model.User, err
 		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "query failed")
-		return model.User{}, fmt.Errorf("mysql: get user by id: %w", err)
+		return model.User{}, fmt.Errorf("%w: get user by id: %w", apperr.ErrMySQL, err)
 	}
 	return u, nil
 }
@@ -73,7 +74,7 @@ func (r *UserRepository) List(ctx context.Context, offset, limit int) ([]model.U
 	if err := r.db.WithContext(listCtx).Offset(offset).Limit(limit).Find(&users).Error; err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list failed")
-		return []model.User{}, fmt.Errorf("mysql: list users: %w", err)
+		return []model.User{}, fmt.Errorf("%w: list users: %w", apperr.ErrMySQL, err)
 	}
 	return users, nil
 }
@@ -83,7 +84,7 @@ func (r *UserRepository) ListAllIDs(ctx context.Context) ([]int64, error) {
 	listAllIdCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	if err := r.db.WithContext(listAllIdCtx).Model(&model.User{}).Pluck("id", &userIDs).Error; err != nil {
-		return nil, fmt.Errorf("mysql: list all user ids: %w", err)
+		return nil, fmt.Errorf("%w: list all user ids: %w", apperr.ErrMySQL, err)
 	}
 	return userIDs, nil
 }
@@ -116,7 +117,7 @@ func (r *UserRepository) Update(ctx context.Context, id int64, upd model.UserUpd
 		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "update failed")
-		return model.User{}, fmt.Errorf("mysql: update user: %w", err)
+		return model.User{}, fmt.Errorf("%w: update user: %w", apperr.ErrMySQL, err)
 	}
 	return r.GetById(ctx, id)
 }
@@ -131,7 +132,7 @@ func (r *UserRepository) Delete(ctx context.Context, id int64) error {
 	if result.Error != nil {
 		span.RecordError(result.Error)
 		span.SetStatus(codes.Error, "delete failed")
-		return fmt.Errorf("mysql: delete user: %w", result.Error)
+		return fmt.Errorf("%w: delete user: %w", apperr.ErrMySQL, result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return repository.ErrUserNotFound

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"ops-agent-backend/internal/apperr"
 	"ops-agent-backend/internal/bloom"
 	"ops-agent-backend/internal/model"
 	"ops-agent-backend/internal/mq"
@@ -50,7 +51,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	u.Email = req.Email
 	hashedBytes, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		h.HandleError(c, fmt.Errorf("handler: hash password: %w", err), nil)
+		h.HandleError(c, fmt.Errorf("%w: hash password: %w", apperr.ErrHandler, err), nil)
 		return
 	}
 	u.Password = string(hashedBytes)

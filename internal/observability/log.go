@@ -14,9 +14,12 @@ const (
 	TplDuplicateUser = "duplicate user creation attempt"
 	TplLockConflict  = "distributed lock conflict"
 	TplBadRequest    = "invalid request parameter"
-	TplInternalError = "internal server error"
-
-	// 非错误的观测点（在发生处记录）
+	// 内部错误，按出错组件细分（未分类的落到 TplInternalError）
+	TplInternalError      = "internal server error"
+	TplInternalErrorMySQL = "internal server error in mysql"
+	TplInternalErrorCache = "internal server error in cache"
+	TplInternalErrorMQ    = "internal server error in mq"
+	// 在发生处记录（不往上传，或被降级掩盖的事件）
 	TplCacheMiss        = "cache miss for user {user_id}"
 	TplCacheStoreFailed = "failed to store cache for user {user_id}"
 	TplCacheReadFailed  = "failed to read cache for user {user_id}"

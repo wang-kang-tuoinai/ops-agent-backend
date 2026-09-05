@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"ops-agent-backend/internal/apperr"
 	obs "ops-agent-backend/internal/observability"
 	"ops-agent-backend/internal/repository"
 	"ops-agent-backend/internal/utils"
@@ -30,11 +31,20 @@ func (h *UserHandler) HandleError(c *gin.Context, err error, attrs map[string]an
 	default:
 		//未预期的错误不暴露内部细节
 		log.Println("internal error: ", err)
+		template := obs.TplInternalError
+		switch {
+		case errors.Is(err, apperr.ErrMySQL):
+			template = obs.TplInternalErrorMySQL
+		case errors.Is(err, apperr.ErrCache):
+			template = obs.TplInternalErrorCache
+		case errors.Is(err, apperr.ErrMQ):
+			template = obs.TplInternalErrorMQ
+		}
 		if attrs == nil {
 			attrs = make(map[string]any)
 		}
 		attrs["err"] = err.Error()
-		h.recorder.Record(ctx, obs.LevelError, obs.TplInternalError, obs.WithAttrs(attrs))
+		h.recorder.Record(ctx, obs.LevelError, template, obs.WithAttrs(attrs))
 		c.JSON(http.StatusInternalServerError, ErrorResponse{Error: "服务器内部错误"})
 	}
 }

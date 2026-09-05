@@ -9,6 +9,7 @@ import (
 	"ops-agent-backend/internal/model"
 	obs "ops-agent-backend/internal/observability"
 	"ops-agent-backend/internal/repository"
+	"ops-agent-backend/internal/apperr"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -126,7 +127,7 @@ func (c *CacheUserRepository) GetById(ctx context.Context, id int64) (model.User
 		var cu CachedUser
 		if err := json.Unmarshal(jsonData, &cu); err != nil {
 			span.RecordError(err)
-			return model.User{}, fmt.Errorf("cache: unmarshal cached user: %w", err)
+			return model.User{}, fmt.Errorf("%w: unmarshal cached user: %w", apperr.ErrCache, err)
 		}
 		return cu.ToModelUser(), nil
 	}

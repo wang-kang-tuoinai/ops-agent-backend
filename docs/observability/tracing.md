@@ -176,16 +176,57 @@ CREATE TABLE spans (
 
 ### 6.3 `GET /traces/{trace_id}` — 归一化树（下钻）
 
+返回字段说明：
+- `status`：`ok` / `degraded`（后代有错但根正常）/ `failed`（根节点出错）
+- `error_origin`：最早出错的 span 的 operation，方便 Agent 直接定位根因
+- `self_ms`：span 自身耗时（`duration_ms` 减去所有直接子节点之和），暴露"时间去哪了"
+- `warnings`：数据质量提示，如 Jaeger 返回的 trace 不完整时出现
+
 ```json
 {
-  "trace_id": "a1b2...",
-  "duration_ms": 380,
+  "trace_id": "a1b2c3d4e5f6",
+  "root_operation": "POST /api/v1/login",
+  "duration_ms": 412.5,
+  "status": "degraded",
+  "error_origin": "SELECT users",
+  "error_desc": "driver: bad connection",
+  "span_count": 6,
   "root": {
-    "operation": "GET /users/:id", "service": "ops-agent-backend",
-    "duration_ms": 380, "status": "ok",
+    "span_id": "aaaa1111",
+    "service": "ops-agent-backend",
+    "operation": "POST /api/v1/login",
+    "kind": "server",
+    "start_ms": 1725600000000,
+    "duration_ms": 412.5,
+    "self_ms": 18.3,
+    "status": "ok",
     "children": [
-      { "operation": "cache.GetById", "duration_ms": 4, "cache_hit": true },
-      { "operation": "SELECT users", "duration_ms": 210, "sql": "SELECT * FROM users WHERE id = ?" }
+      {
+        "span_id": "bbbb2222",
+        "service": "ops-agent-backend",
+        "operation": "cache.GetUser",
+        "kind": "client",
+        "start_ms": 1725600000005,
+        "duration_ms": 3.1,
+        "self_ms": 3.1,
+        "status": "ok",
+        "attrs": { "cache.hit": true }
+      },
+      {
+        "span_id": "cccc3333",
+        "service": "ops-agent-backend",
+        "operation": "SELECT users",
+        "kind": "client",
+        "start_ms": 1725600000010,
+        "duration_ms": 391.1,
+        "self_ms": 391.1,
+        "status": "error",
+        "error": "driver: bad connection",
+        "attrs": {
+          "db.system": "mysql",
+          "db.statement": "SELECT * FROM users WHERE id = ?"
+        }
+      }
     ]
   }
 }

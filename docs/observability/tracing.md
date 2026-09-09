@@ -141,24 +141,68 @@ CREATE TABLE spans (
 
 ### 6.1 `GET /traces/stats` — 聚合（最值钱）
 
-请求：`?service=&operation=&start=&end=`
+从调用链角度批量拉取链路并聚合统计各 HTTP 入口接口的耗时分布和健康状态，**能识别日志无法发现的“被降级掩盖的隐性故障”**。
+
+#### 6.1 请求参数
+
+`GET /api/v1/traces/stats`
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `service` | string | ✅ **必填** | 服务名（Jaeger 强制要求），如 `ops-agent-backend`，为空返回 400 |
+| `operation` | string | 否 | 过滤具体接口名，**只能传 root span 的 operation**（如 `POST /api/v1/users`），留空统计所有接口 |
+| `start` / `end` | int64 | 否（建议传） | 秒级时间戳（同 `/logs/stats`），默认最近 1 小时，单次窗口上限 7 天 |
+| `limit` | int | 否 | 采样条数上限，默认 200，合法范围 1-500（超出范围自动修正为 200） |
 
 ```json
 {
-  "summary": {
-    "window": { "start": 1787000000, "end": 1787003600 },
-    "total_traces": 1203,
-    "error_rate": 0.012,
-    "operations": [
-      { "operation": "cache.GetById", "count": 8000, "error_rate": 0.005,
-        "p50_ms": 2, "p95_ms": 15, "p99_ms": 180 }
+  "stats": {
+    "total_traces": 200,
+    "by_status": {
+      "ok": 182,
+      "degraded": 12,
+      "failed": 6
+    },
+    "entrypoints": [
+      {
+        "operation": "POST /api/v1/users",
+        "count": 120,
+        "p50_ms": 12.5,
+        "p95_ms": 48.2,
+        "p99_ms": 182.0,
+        "failed": 4,
+        "degraded": 8
+      },
+      {
+        "operation": "GET /api/v1/users/:id",
+        "count": 80,
+        "p50_ms": 3.2,
+        "p95_ms": 15.0,
+        "p99_ms": 45.6,
+        "failed": 2,
+        "degraded": 4
+      }
     ]
   },
-  "generated_at": 1787003600
+  "notices": [
+    "跳过 5 条非 HTTP 入口的 trace（如连接池拨号）",
+    "返回条数达到上限 200，实际只覆盖 14:15:30 之后的请求（请求窗口起点是 13:30:00），更早的时间段需要分段查询"
+  ]
 }
 ```
 
-直接回答「哪个接口是瓶颈、哪个在报错」。
+- **状态分类（`by_status`）**：
+  - `ok`：全链路正常（HTTP 4xx 因已被服务处理且非服务端故障，亦判定为 `ok`）。
+  - `degraded`：**隐性故障**。根请求成功（200），但内部某个环节（Redis、MySQL、下游 RPC 等）出错（例如缓存失效降级查库，接口虽然可用但变慢）。
+  - `failed`：根请求本身失败（5xx）。
+- **入口聚合（`entrypoints`）**：
+  - 按调用量（`count`）降序排列。
+  - 提供 `p50_ms`、`p95_ms`、`p99_ms` 百分位耗时，以及各接口的 `failed` 与 `degraded` 计数，直接回答「哪个接口是瓶颈、哪个在报错、哪个有隐藏降级」。
+- **提示信息（`notices`）**：
+  - 参数调整提示（如 `start/end` 默认时间填充、`limit` 越界重置）。
+  - 非入口过滤提示（如过滤连接池拨号链路）。
+  - **截断告警**：当返回条数达到 `limit` 上限时，根据所有原始 span 的最早时间计算实际覆盖区间，提示调用方缩小窗口分段查询。
+  - 小样本提示：单个接口样本量不足 20 条时，提示百分位数仅供参考。
 
 ### 6.2 `GET /traces/search` — 摘要列表（扁平）
 

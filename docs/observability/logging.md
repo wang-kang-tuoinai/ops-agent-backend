@@ -97,11 +97,26 @@ CREATE TABLE logs (
 
 ## 6. 查询接口（给 AI 的三个工具）
 
-统一前缀 `/api/v1/observability`，统一 `summary + samples` 双层结构、游标分页、秒级 `start/end` 参数。
+统一前缀 `/api/v1`，秒级 `start/end` 参数，支持各维度组合过滤。
+
+> **公共参数处理机制与 `notices` 说明**：
+> - **时间窗口（`start / end`）**：秒级 Unix 时间戳。非硬性报错校验，但**强烈建议传入以约束扫描范围**。未传时 `end` 默认当前时间，`start` 默认 `end - 3600`（最近 1 小时）；窗口超过 7 天会自动截断为最近 7 天；若 `start >= end` 则重置为 `end - 3600`。
+> - **`notices` 提示字段**：三个接口响应顶层均包含 `notices: []string`（若无提示则省略）。当后端对请求参数做了**默认填充、越界修正或截断**（如补充默认时间窗、`limit` / `top_n` 越界重置、`cursor` 格式非法被忽略等）时，会将具体提示写入 `notices`，使调用方（特别是 AI Agent）能够感知实际生效的查询边界。
 
 ### 6.1 `GET /logs/stats` — 统计（Level 0）
 
-请求：`?service=&route=&method=&level=&start=&end=&granularity=60s`
+获取日志整体健康统计与 Top 模板分布（耗费 Token 最小，诊断应首先调用）。
+
+#### 6.1 请求参数
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `start` / `end` | int64 | 否（建议传） | 秒级时间窗，默认最近 1 小时，单次窗口上限 7 天 |
+| `service` | string | 否 | 按服务名过滤，如 `ops-agent-backend` |
+| `level` | string | 否 | 按级别过滤（`DEBUG/INFO/WARN/ERROR`） |
+| `route` | string | 否 | 按 HTTP 路由过滤（如 `/users`） |
+| `method` | string | 否 | 按 HTTP 方法过滤（如 `GET`/`POST`） |
+| `top_n` | int | 否 | 返回出现次数最多的模板数，默认 10，上限 50（越界自动修正为 10） |
 
 ```json
 {
@@ -112,11 +127,17 @@ CREATE TABLE logs (
     "error_rate": 0.0213,
     "by_level": { "INFO": 17001, "WARN": 1027, "ERROR": 392 },
     "top_templates": [
-      { "template": "redis connection refused to {addr}", "count": 8432 }
+      {
+        "template": "redis connection refused to {addr}",
+        "level": "ERROR",
+        "count": 8432
+      }
     ]
   },
-  "histogram": [ { "ts": 1787000000, "count": 300, "error": 8 } ],
-  "generated_at": 1787003600
+  "generated_at": 1787003600,
+  "notices": [
+    "start 未提供或非法，已默认为 end 前 1 小时"
+  ]
 }
 ```
 > 已知：一个 5xx 请求会产生两条 ERROR（access log 一条 + 业务错误一条），
@@ -130,12 +151,12 @@ CREATE TABLE logs (
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `start` / `end` | int64 | ✅ | 秒级时间窗，**必传** |
+| `start` / `end` | int64 | 否（建议传） | 秒级时间窗，默认最近 1 小时，窗口上限 7 天 |
 | `service` | string | 否 | 只统计某个服务 |
 | `level` | string | 否 | 只统计某个级别（`DEBUG/INFO/WARN/ERROR`） |
 | `route` | string | 否 | 只统计某个路由（如 `/users`） |
 | `method` | string | 否 | 只统计某个 HTTP 方法（如 `GET`/`POST`） |
-| `limit` | int | 否 | 返回模板数上限，默认 200 |
+| `limit` | int | 否 | 返回模板数上限，默认 200，范围 1-500（越界自动重置为 200） |
 
 ```json
 {
@@ -146,10 +167,16 @@ CREATE TABLE logs (
       "count": 8432,
       "first_seen": 1787000100,
       "last_seen": 1787003500,
-      "sample": { "ts": 1787003500, "trace_id": "a1b2...", "route": "/users", "method": "GET",
-                  "attrs": { "addr": "redis:6379" } }
+      "sample": {
+        "ts": 1787003500,
+        "trace_id": "a1b2...",
+        "route": "/users",
+        "method": "GET",
+        "attrs": { "addr": "redis:6379" }
+      }
     }
-  ]
+  ],
+  "notices": []
 }
 ```
 
@@ -164,32 +191,39 @@ CREATE TABLE logs (
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `start` / `end` | int64 | ✅ | 秒级时间窗，**必传**以约束扫描范围 |
+| `start` / `end` | int64 | 否（建议传） | 秒级时间窗，默认最近 1 小时，窗口上限 7 天 |
 | `service` | string | 否 | 只查某个服务的日志 |
-| `limit` | int | 否 | 每页条数，默认 50，封顶 100 |
-| `cursor` | string | 否 | 上页返回的 `next_cursor`（`ts:id` 复合值，`ts` 为毫秒），用于翻页 |
+| `limit` | int | 否 | 每页条数，默认 50，范围 1-100（越界自动重置为 50） |
+| `cursor` | string | 否 | 上页返回的 `next_cursor`（`ts:id` 复合值，`ts` 为毫秒），用于翻页；非法格式会被忽略并提示 |
 | `trace_id` | string | 否 | 只查某个 trace 的日志 |
 | `template` | string | 否 | 只查某个模板的日志 |
 | `level` | string | 否 | 只查某个级别（`DEBUG/INFO/WARN/ERROR`） |
 | `route` | string | 否 | 只查某个路由（如 `/users`） |
 | `method` | string | 否 | 只查某个 HTTP 方法（如 `GET`/`POST`） |
-| `keyword` | string | 否 | 模糊子串搜索（`LIKE`），须配合时间窗 + limit |
+| `keyword` | string | 否 | 模糊子串搜索（`LIKE` 模板与 attrs 文本），须配合时间窗 + limit 避免全表扫 |
 
 ```json
 {
   "items": [
-    { "ts": 1787003500, "level": "ERROR", "service": "ops-agent-backend",
-      "route": "/users", "method": "POST",
+    {
+      "ts": 1787003500,
+      "level": "ERROR",
+      "service": "ops-agent-backend",
+      "route": "/users",
+      "method": "POST",
       "template": "redis connection refused to {addr}",
-      "attrs": { "addr": "redis:6379" }, "trace_id": "a1b2..." }
+      "attrs": { "addr": "redis:6379" },
+      "trace_id": "a1b2..."
+    }
   ],
   "next_cursor": "1787003500123:12345",
-  "has_more": true
+  "has_more": true,
+  "notices": []
 }
 ```
 
-- **分页**：游标分页（keyset）。`next_cursor` 是上页最后一条的 `ts:id` 复合值；下一页传 `?cursor=<next_cursor>`，按 `(ts, id)` 倒序取更旧日志（`ts` 毫秒级会重复，用 `id` 做 tie-breaker）。
-- **`keyword`**：对消息内容（模板字符串 / `attrs`）做子串匹配，走参数绑定杜绝注入；因 `LIKE '%x%'` 全表扫，必须配合 `start/end` + `limit`。
+- **分页**：游标分页（keyset）。`next_cursor` 是上页最后一条的 `ts:id` 复合值（`ts` 毫秒级）；下一页传 `?cursor=<next_cursor>`，按 `(ts, id)` 倒序取更旧日志（`ts` 毫秒级会重复，用 `id` 做 tie-breaker）。
+- **`keyword`**：对消息内容（模板字符串与 `attrs` JSON 文本）做子串匹配，走参数绑定杜绝注入；因 `LIKE '%x%'` 全表扫，必须配合 `start/end` + `limit`。
 - 每条日志带 `trace_id`，AI 据此跳 Level 3（[tracing.md](tracing.md) 的 `GET /traces/{trace_id}`）。
 
 ## 7. 中间件（自动 access log）

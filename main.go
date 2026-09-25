@@ -21,7 +21,6 @@ import (
 	"syscall"
 	"time"
 
-	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/otel"
@@ -141,24 +140,15 @@ func main() {
 	redisLocker := utils.NewRedisDL(rdb)
 	// 初始化RabbitMQ的连接
 	rabbitmqAddr := getEnv("RABBITMQ_ADDR", "amqp://guest:guest@localhost:5672/")
-	var amqpConn *amqp.Connection
+	var pub *mq.Publisher
 	err = withRetry("RabbitMQ", 5, 4*time.Second, func() error {
 		var dialErr error
-		amqpConn, dialErr = amqp.DialConfig(rabbitmqAddr,
-			amqp.Config{Dial: func(network string, addr string) (net.Conn, error) {
-				return net.DialTimeout(network, addr, 5*time.Second)
-			}},
-		)
+		pub, dialErr = mq.NewPublisher(rabbitmqAddr)
 		return dialErr
 	},
 	)
 	if err != nil {
 		log.Fatal("连接RabbitMQ失败:", err)
-	}
-	defer amqpConn.Close()
-	pub, err := mq.NewPublisher(amqpConn)
-	if err != nil {
-		log.Fatal("创建Publisher失败:", err)
 	}
 	defer pub.Close()
 	userHandler := handler.NewUserHandler(repoCache, redisLocker, bf, pub, recorder)

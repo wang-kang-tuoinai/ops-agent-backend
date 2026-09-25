@@ -12,29 +12,19 @@ import (
 )
 
 type Publisher struct {
-	conn    *amqp.Connection
-	channel *amqp.Channel
-	mu      sync.Mutex
+	worker *worker
+	mu     sync.Mutex
 }
 
-// TODO RabbitMQ挂了之后即使后面恢复了，但是ch仍然不能自动重连
-func NewPublisher(conn *amqp.Connection) (*Publisher, error) {
-	ch, err := conn.Channel()
+// Publisher 拥有连接，Close 会同时停止重连并关闭当前连接。
+func NewPublisher(addr string) (*Publisher, error) {
+	w, err := startWorker(context.Background(), "publisher", func(ctx context.Context) (*session, error) {
+		return openSession(ctx, addr, nil)
+	}, waitSession, time.Second)
 	if err != nil {
 		return nil, err
 	}
-	if err := ch.ExchangeDeclare(
-		ExchangeUser,
-		"topic",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	); err != nil {
-		return nil, fmt.Errorf("Declare exchange %s failed:%w", ExchangeUser, err)
-	}
-	return &Publisher{conn: conn, channel: ch}, nil
+	return &Publisher{worker: w}, nil
 }
 
 func (p *Publisher) PublishUserRegister(ctx context.Context, event UserRegisterEvent) error {
@@ -55,7 +45,12 @@ func (p *Publisher) PublishUserRegister(ctx context.Context, event UserRegisterE
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return p.channel.PublishWithContext(pubCtx,
+	ch, err := p.worker.channel()
+	if err != nil {
+		return err
+	}
+	// 不自动重发：发送报错时，消息是否已到达 broker 可能无法确定。
+	if err := ch.PublishWithContext(pubCtx,
 		ExchangeUser,
 		RoutingKeyUserRegister,
 		false,
@@ -65,14 +60,12 @@ func (p *Publisher) PublishUserRegister(ctx context.Context, event UserRegisterE
 			MessageId:   event.EventId,
 			Timestamp:   event.Timestamp,
 			Body:        body,
-		})
+		}); err != nil {
+		return fmt.Errorf("publish user registration: %w", err)
+	}
+	return nil
 }
 
 func (p *Publisher) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.channel != nil {
-		return p.channel.Close()
-	}
-	return nil
+	return p.worker.Close()
 }

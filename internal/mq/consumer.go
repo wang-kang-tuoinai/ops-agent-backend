@@ -3,105 +3,122 @@ package mq
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type EventHandler func(ctx context.Context, event UserRegisterEvent) error
 
+// 每个 Consumer 管理一个订阅；需要多个订阅时创建多个 Consumer。
 type Consumer struct {
-	conn *amqp.Connection
-	ch   *amqp.Channel
-	wg   sync.WaitGroup
+	addr   string
+	mu     sync.Mutex
+	worker *worker
+	closed bool
 }
 
-func NewConsumer(conn *amqp.Connection) (*Consumer, error) {
-	ch, err := conn.Channel()
-	if err != nil {
-		return nil, err
-	}
-	// 声明同一个Exchange,保证幂等
-	if err := ch.ExchangeDeclare(
-		ExchangeUser,
-		"topic",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	); err != nil {
-		return nil, fmt.Errorf("Declare exchange %s failed:%w", ExchangeUser, err)
-	}
-	return &Consumer{
-		conn: conn,
-		ch:   ch,
-	}, nil
+// 连接在 Subscribe 中建立，只有队列声明和订阅均成功才开始消费。
+func NewConsumer(addr string) *Consumer {
+	return &Consumer{addr: addr}
 }
 
-func (c *Consumer) Subscribe(
-	ctx context.Context,
-	queueName string,
-	routingKey string,
-	handler EventHandler,
-) error {
-	q, err := c.ch.QueueDeclare(queueName, true, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("Declared queue %s:%w", queueName, err)
+func (c *Consumer) Subscribe(ctx context.Context, queueName, routingKey string, handler EventHandler) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return errors.New("consumer is closed")
 	}
-	if err := c.ch.QueueBind(q.Name, routingKey, ExchangeUser, false, nil); err != nil {
-		return fmt.Errorf("bind queue %s to %s with key %s:%w", q.Name,
-			ExchangeUser, routingKey, err)
+	if c.worker != nil {
+		return errors.New("consumer already subscribed")
 	}
-
-	msgs, err := c.ch.Consume(q.Name, "", false, false, false, false, nil)
-	if err != nil {
-		return fmt.Errorf("consume queue %s:%w", q.Name, err)
+	if handler == nil {
+		return errors.New("consumer handler is nil")
 	}
-	c.wg.Add(1)
-	go func() {
-		defer c.wg.Done()
-		log.Printf("[Consumer] queue=%s rountingKey=:%s 开始监听...\n", queueName, routingKey)
-		for {
-			select {
-			case <-ctx.Done():
-				log.Printf("[Consumer] queue=%s 停止消费: %v\n", queueName, ctx.Err())
-				return
-			case msg, ok := <-msgs:
-				if !ok {
-					log.Printf("[Consumer] queue=%s channel已关闭\n", queueName)
-					return
-				}
-				var event UserRegisterEvent
-				if err := json.Unmarshal(msg.Body, &event); err != nil {
-					log.Printf("[Consumer] queue = %s 反序列化失败 %v\n", queueName, err)
-					// 如果格式错误直接丢弃
-					_ = msg.Nack(false, false)
-					continue
-				}
-				//TODO 没有限制重试次数会导致无限重试
-				if err := handler(ctx, event); err != nil {
-					log.Printf("[Consumer] queue %s 处理失败: evendId= %s err=%v\n",
-						queueName, event.EventId, err)
-					//处理失败,尝试重新放回队列重试
-					_ = msg.Nack(false, true)
-					continue
-				}
-				_ = msg.Ack(false)
-				log.Printf("[Consumer] queue = %s 处理成功: eventId=%s\n", queueName, event.EventId)
+	w, err := startWorker(ctx, "consumer:"+queueName, func(ctx context.Context) (*session, error) {
+		return openSession(ctx, c.addr, func(ch *amqp.Channel) (<-chan amqp.Delivery, error) {
+			q, err := ch.QueueDeclare(queueName, true, false, false, false, nil)
+			if err != nil {
+				return nil, fmt.Errorf("declare queue %s: %w", queueName, err)
 			}
-		}
-	}()
+			if err := ch.QueueBind(q.Name, routingKey, ExchangeUser, false, nil); err != nil {
+				return nil, fmt.Errorf("bind queue %s: %w", q.Name, err)
+			}
+			return ch.Consume(q.Name, "", false, false, false, false, nil)
+		})
+	}, func(ctx context.Context, s *session) error {
+		return consumeSession(ctx, s, queueName, handler)
+	}, time.Second)
+	if err != nil {
+		return err
+	}
+	c.worker = w
 	return nil
 }
 
+func consumeSession(ctx context.Context, s *session, queueName string, handler EventHandler) error {
+	log.Printf("[Consumer] queue=%s 开始监听", queueName)
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case err := <-s.connClosed:
+			return closeReason(err)
+		case err := <-s.chanClosed:
+			return closeReason(err)
+		case tag := <-s.cancelled:
+			return fmt.Errorf("subscription cancelled by broker: %s", tag)
+		case msg, ok := <-s.deliveries:
+			if !ok {
+				// 尽量保留 Channel 关闭的协议错误原因。
+				select {
+				case err := <-s.chanClosed:
+					return closeReason(err)
+				default:
+					return amqp.ErrClosed
+				}
+			}
+			var event UserRegisterEvent
+			if err := json.Unmarshal(msg.Body, &event); err != nil {
+				log.Printf("[Consumer] queue=%s 反序列化失败: %v", queueName, err)
+				if err := msg.Nack(false, false); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := handler(ctx, event); err != nil {
+				log.Printf("[Consumer] queue=%s 处理失败: eventId=%s err=%v", queueName, event.EventId, err)
+				if ctx.Err() != nil {
+					return ctx.Err() // 关闭连接后，未确认消息由 broker 重新入队。
+				}
+				// 保留原有策略：处理失败重新入队，重试次数限制另行处理。
+				if err := msg.Nack(false, true); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := msg.Ack(false); err != nil {
+				return err
+			}
+			log.Printf("[Consumer] queue=%s 处理成功: eventId=%s", queueName, event.EventId)
+		}
+	}
+}
+
 func (c *Consumer) Close() error {
-	// 先等待GoRouting真正跑完
-	c.wg.Wait()
-	if c.ch != nil {
-		return c.ch.Close()
+	c.mu.Lock()
+	c.closed = true
+	w := c.worker
+	c.mu.Unlock()
+	if w != nil {
+		return w.Close()
 	}
 	return nil
 }

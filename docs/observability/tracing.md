@@ -144,7 +144,7 @@ CREATE TABLE spans (
 2026-09-28 更新：实际接口为 `GET /api/v1/traces/stats`，完整请求和响应契约见 [obs-api 接口文档](../../../obs-api/docs/traces-stats.md)。
 
 - service 必填，一次查询一个服务；operation 可选，匹配该服务自己的 server 入口，不要求是全局根。
-- start/end 为秒级入口开始时间范围，默认最近一小时，窗口最长七天；limit 是候选 Trace 上限，默认 200，范围 1–500。
+- start/end 为秒级入口开始时间范围，默认最近一小时，窗口最长七天；stats 移除对外 limit，未指定 operation 时逐个查询 server 操作，默认各 1500 条候选；指定 operation 时默认 5000 条。meta.operation_queries 标明各操作的查询状态及触顶情况，触顶后聚焦接口或缩小窗口。
 - 只分析选中入口及其后代，不包含上游和旁支；多根或缺少上游时仍保留可识别入口，并提示数据不完整。
 - stats.total_calls 取代 total_traces，按 (trace_id, entry_span_id) 计数。同一 Trace 多次进入服务时分别统计；meta.fetched_traces 单独返回已解析的候选 Trace 数。
 - 按 service/operation 聚合调用数、P50/P95/P99、failed/degraded 和 downstream_error_services；下游服务在每次入口调用内去重，不代表根因。

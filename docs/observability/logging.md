@@ -50,7 +50,7 @@
 AI 永远**从聚合开始，逐级下钻**，绝不一次性灌原始日志：
 
 ```
-Level 0  统计      →  错误率、各级别计数、Top 模板、时间直方图     （0 行原始日志）
+Level 0  统计      →  各服务 ERROR 日志占比、各级别计数     （0 行原始日志）
 Level 1  模板      →  "redis connection refused" 出现 8432 次      （每个模板带 1 条样例）
 Level 2  过滤原始  →  按 trace_id/模板/级别/时间窗查，有界返回      （限制 N 行）
 Level 3  下钻链路  →  拿 trace_id 跳到 trace 看全貌
@@ -101,87 +101,27 @@ CREATE TABLE logs (
 
 > **公共参数处理机制与 `notices` 说明**：
 > - **时间窗口（`start / end`）**：秒级 Unix 时间戳。非硬性报错校验，但**强烈建议传入以约束扫描范围**。未传时 `end` 默认当前时间，`start` 默认 `end - 3600`（最近 1 小时）；窗口超过 7 天会自动截断为最近 7 天；若 `start >= end` 则重置为 `end - 3600`。
-> - **`notices` 提示字段**：三个接口响应顶层均包含 `notices: []string`（若无提示则省略）。当后端对请求参数做了**默认填充、越界修正或截断**（如补充默认时间窗、`limit` / `top_n` 越界重置、`cursor` 格式非法被忽略等）时，会将具体提示写入 `notices`，使调用方（特别是 AI Agent）能够感知实际生效的查询边界。
+> - **`notices` 提示字段**：三个接口响应顶层均包含 `notices: []string`（若无提示则省略）。当后端对请求参数做了**默认填充、越界修正或截断**（如补充默认时间窗、`limit` 越界重置、`cursor` 格式非法被忽略等）时，会将具体提示写入 `notices`，使调用方（特别是 AI Agent）能够感知实际生效的查询边界。
 
-### 6.1 `GET /logs/stats` — 统计（Level 0）
+### 6.1 `GET /logs/stats` — 按服务统计（Level 0）
 
-获取日志整体健康统计与 Top 模板分布（耗费 Token 最小，诊断应首先调用）。
+不传 service 时，按窗口内有匹配日志的服务分别返回统计；指定 service 时只返回该服务。响应顶层显式保留 window，summaries 始终为数组，每项包含 service、total、error_count、error_rate、by_level。无匹配日志返回空数组，不代表所有服务正常。
 
-#### 6.1 请求参数
+参数保留 start/end、service、route、method；level 和 top_n 已移除，传入返回 400。不再返回 top_templates。排序为 ERROR 数降序、WARN 数降序、service 升序。
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `start` / `end` | int64 | 否（建议传） | 秒级时间窗，默认最近 1 小时，单次窗口上限 7 天 |
-| `service` | string | 否 | 按服务名过滤，如 `ops-agent-backend` |
-| `level` | string | 否 | 按级别过滤（`DEBUG/INFO/WARN/ERROR`） |
-| `route` | string | 否 | 按 HTTP 路由过滤（如 `/users`） |
-| `method` | string | 否 | 按 HTTP 方法过滤（如 `GET`/`POST`） |
-| `top_n` | int | 否 | 返回出现次数最多的模板数，默认 10，上限 50（越界自动修正为 10） |
+error_rate 是各服务 ERROR 日志占比，不是请求失败率；一次请求可能对应多条 ERROR，不能按固定倍数换算。
 
-```json
-{
-  "summary": {
-    "window": { "start": 1787000000, "end": 1787003600 },
-    "total": 18420,
-    "error_count": 392,
-    "error_rate": 0.0213,
-    "by_level": { "INFO": 17001, "WARN": 1027, "ERROR": 392 },
-    "top_templates": [
-      {
-        "template": "redis connection refused to {addr}",
-        "level": "ERROR",
-        "count": 8432
-      }
-    ]
-  },
-  "generated_at": 1787003600,
-  "notices": [
-    "start 未提供或非法，已默认为 end 前 1 小时"
-  ]
-}
-```
-> 已知：一个 5xx 请求会产生两条 ERROR（access log 一条 + 业务错误一条），
-> error_rate 的绝对值偏高约一倍。该指标用于观察趋势变化，不代表精确错误率。
+完整参数、响应示例和统计口径见 [logs-stats.md](../../../obs-api/docs/logs-stats.md)。
 
-### 6.2 `GET /logs/templates` — 模板（Level 1）
+### 6.2 `GET /logs/templates` — 指定服务的模板（Level 1）
 
-按维度聚合出 Top 模板（每个模板的计数 + 一条代表性样例）。模板数量天然有界（≈ 代码里 `log` 语句的数量，通常几十个），所以**不分页、一次返回全部**，`limit` 仅作兜底上限。
+service 改为必填；start/end、level、route、method、limit 保持可选。limit 默认 200，范围 1–500。未知服务时先用 stats 发现服务，已知服务可以直接下钻。
 
-#### 6.2 请求参数
+响应为 service、items、has_more、notices。按 (template, level) 分组，SQL 绑定 limit+1，多取一组判断是否截断；恰好 limit 组时 has_more 为 false，超过才为 true。返回组的 count 仍统计完整匹配窗口，没有模板分页游标。
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `start` / `end` | int64 | 否（建议传） | 秒级时间窗，默认最近 1 小时，窗口上限 7 天 |
-| `service` | string | 否 | 只统计某个服务 |
-| `level` | string | 否 | 只统计某个级别（`DEBUG/INFO/WARN/ERROR`） |
-| `route` | string | 否 | 只统计某个路由（如 `/users`） |
-| `method` | string | 否 | 只统计某个 HTTP 方法（如 `GET`/`POST`） |
-| `limit` | int | 否 | 返回模板数上限，默认 200，范围 1-500（越界自动重置为 200） |
+sample 仍为该组最新一条，不能推断组内所有错误原因一致。has_more 为 true 时可以增大 limit 或缩小窗口/过滤条件。更多原始日志使用 logs/search，并保留相同 service 筛选。
 
-```json
-{
-  "items": [
-    {
-      "template": "redis connection refused to {addr}",
-      "level": "ERROR",
-      "count": 8432,
-      "first_seen": 1787000100,
-      "last_seen": 1787003500,
-      "sample": {
-        "ts": 1787003500,
-        "trace_id": "a1b2...",
-        "route": "/users",
-        "method": "GET",
-        "attrs": { "addr": "redis:6379" }
-      }
-    }
-  ],
-  "notices": []
-}
-```
-
-- `sample` 是每个模板的一条代表性原始日志（取最新一条），模板 + `sample.attrs` 可还原完整消息，`trace_id` 可跳 Level 3 看链路。
-- 想看某个模板的更多原始行，下钻 Level 2：`GET /logs/search?template=...`（有界返回 + 游标分页）。
+完整契约见 [logs-templates.md](../../../obs-api/docs/logs-templates.md)。
 
 ### 6.3 `GET /logs/search` — 过滤原始日志（Level 2）
 
